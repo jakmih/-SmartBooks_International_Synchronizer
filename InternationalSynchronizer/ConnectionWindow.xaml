@@ -1,0 +1,24 @@
+﻿<Window x:Class="InternationalSynchronizer.ConnectionWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:InternationalSynchronizer"
+        mc:Ignorable="d"
+        Title="Výber Databáz" Height="400" Width="600" WindowStartupLocation="CenterScreen">
+
+    <Grid Margin="10">
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+            <!-- Main Database -->
+            <TextBlock Text="Hlavná databáza na synchronizáciu:" FontSize="14" FontWeight="Bold" Margin="0,0,0,5" HorizontalAlignment="Center"/>
+            <ComboBox x:Name="MainDatabaseComboBox" Width="250" Height="30" SelectionChanged="MainDatabaseComboBox_SelectionChanged"/>
+            <!-- Secondary Database -->
+            <TextBlock Text="Vedľajšia databáza na synchronizáciu:" FontSize="14" FontWeight="Bold" Margin="0,10,0,5" HorizontalAlignment="Center"/>
+            <ComboBox x:Name="SecondaryDatabaseComboBox" Width="250" Height="30" IsEnabled="False" SelectionChanged="SecondaryDatabaseComboBox_SelectionChanged"/>
+            <!-- Connect Button -->
+            <Button Name="ConnectButton" Content="Pripojiť" Width="100" Height="30" Margin="20" Click="ConnectButton_Click" IsEnabled="False"/>
+            <!-- Update Databases Button -->
+            <Button Name="UpdateDatabasesButton" Content="Aktualizovať Databázy" Width="150" Height="30" Margin="30" Click="UpdateDatabasesButton_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

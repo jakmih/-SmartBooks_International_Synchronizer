@@ -1,0 +1,166 @@
+﻿namespace InternationalSynchronizer.Utilities
+{
+    public static class SqlQuery
+    {
+        private static string GetSELECTQuery(Layer layer)
+        {
+            string query = "SELECT sub.name";
+            if (layer == Layer.Subject)
+                return query + ", sub.id";
+
+            query += ", pac.name + ' - ' + pac.description";
+            if (layer == Layer.Package)
+                return query + ", pac.id";
+
+            query += ", thm.name";
+            if (layer == Layer.Theme)
+                return query + ", thm.id";
+
+            query += ", thm_p.name, tsk.knowledge_text_preview";
+            if (layer == Layer.Knowledge)
+                return query + ", tsk.id";
+
+            return query + ", tsk_t.name, tsk.id";
+        }
+
+        private static string GetFROMQuery(Layer layer)
+        {
+            string query = " FROM subject_type AS sub";
+            if (layer == Layer.Subject)
+                return query;
+
+            query += " INNER JOIN package AS pac ON sub.id = pac.id_subject_type";
+            if (layer == Layer.Package)
+                return query;
+
+            query += " INNER JOIN theme AS thm ON pac.id = thm.id_package";
+            if (layer == Layer.Theme)
+                return query;
+
+            query += " INNER JOIN theme_part AS thm_p ON thm_p.id_theme = thm.id";
+            query += " INNER JOIN knowledge AS tsk ON tsk.id_theme_part = thm_p.id";
+            if (layer == Layer.Knowledge)
+                return query;
+
+            query += " INNER JOIN knowledge_type AS tsk_t ON tsk_t.id = tsk.id_knowledge_type";
+            return query;
+        }
+
+        public static string GetItemQuery(Layer layer, Int32 id, bool wholeLayer)
+        {
+            string query = GetSELECTQuery(layer) + GetFROMQuery(layer);
+            if (layer != Layer.KnowledgeType && !wholeLayer)
+                layer++;
+
+            switch (layer)
+            {
+                case Layer.Subject:
+                    break;
+                case Layer.Package:
+                    query += " WHERE sub.id = " + id;
+                    break;
+                case Layer.Theme:
+                    query += " WHERE pac.id = " + id;
+                    break;
+                case Layer.Knowledge:
+                    query += " WHERE thm.id = " + id;
+                    break;
+                case Layer.KnowledgeType:
+                    query += " WHERE tsk.id = " + id;
+                    break;
+            }
+            return query;
+        }
+
+        public static string GetDatabaseIdQuery(string database)
+        {
+            return $"SELECT id FROM sb_database WHERE name = '{database}'";
+        }
+
+        public static string GetInsertDatabaseQuery(string database)
+        {
+            return $"INSERT INTO sb_database (name) VALUES ('{database}')";
+        }
+
+        public static string GetSyncPairQuery(Int32 layer, Int32 id, Int32 itemDatabaseId, Int32 pairItemDatabaseId)
+        {
+            return @$"
+            SELECT sync_item_1.id_item, sync_item_2.id_item
+            FROM sync_pair AS pair
+            INNER JOIN sync_item AS sync_item_1 ON pair.id_sync_item_1 = sync_item_1.id
+            INNER JOIN sync_item AS sync_item_2 ON pair.id_sync_item_2 = sync_item_2.id
+            WHERE
+                (
+                    sync_item_1.id_item = {id}
+                    AND sync_item_1.id_database = {itemDatabaseId}
+                    AND sync_item_1.id_item_type = {layer}
+                    AND sync_item_2.id_database = {pairItemDatabaseId}
+                )
+                OR
+                (
+                    sync_item_2.id_item = {id}
+                    AND sync_item_2.id_database = {itemDatabaseId}
+                    AND sync_item_2.id_item_type = {layer}
+                    AND sync_item_1.id_database = {pairItemDatabaseId}
+                )";
+        }
+
+        public static string GetSyncItemQuery(Int32 layer, Int32 id, Int32 databaseId)
+        {
+            return @$"
+            SELECT id
+            FROM sync_item
+            WHERE
+                id_database = {databaseId}
+                AND id_item_type = {layer}
+                AND id_item = {id}";
+        }
+
+        public static string GetInsertSyncItemQuery(Int32 layer, Int32 id, Int32 databaseId)
+        {
+            return $"INSERT INTO sync_item (id_item_type, id_item, id_database) VALUES ({layer}, {id}, {databaseId})";
+        }
+
+        public static string GetInsertSyncPairQuery(Int32 id1, Int32 id2)
+        {
+            return $"INSERT INTO sync_pair (id_sync_item_1, id_sync_item_2) VALUES ({id1}, {id2})";
+        }
+
+        public static string GetDeleteSyncPairQuery(Int32 id1, Int32 id2)
+        {
+            return @$"
+            DELETE FROM sync_pair
+            WHERE
+                (id_sync_item_1 = {id1} AND id_sync_item_2 = {id2})
+                OR
+                (id_sync_item_1 = {id2} AND id_sync_item_2 = {id1})";
+        }
+
+        public static string GetBlobQuery()
+        {
+            return @"
+            SELECT 
+                sub.id, sub.name,
+                pac.id, pac.name + ' - ' + pac.description,
+                thm.id, thm.name,
+                tsk.id, tsk.knowledge_text_preview, tsk_t.id
+            FROM subject_type AS sub
+            LEFT JOIN package AS pac ON sub.id = pac.id_subject_type
+            LEFT JOIN theme AS thm ON pac.id = thm.id_package
+            LEFT JOIN theme_part AS thm_p ON thm_p.id_theme = thm.id
+            LEFT JOIN knowledge AS tsk ON tsk.id_theme_part = thm_p.id
+            LEFT JOIN knowledge_type AS tsk_t ON tsk_t.id = tsk.id_knowledge_type
+            ORDER BY sub.id, pac.id, thm.id, tsk.id";
+        }
+
+        public static string GetInsertVectorItemQuery(Int32 databaseId, Int32 subjectId, Int32 itemId, Int32 layer)
+        {
+            return $"INSERT INTO vector_item (id_database, id_subject, id_item, id_item_type, name, id_knowledge_type) VALUES ({databaseId}, {subjectId}, {itemId}, {layer}, @name, @type)";
+        }
+
+        public static string GetVectorItemsQuery(Int32 databaseId)
+        {
+            return $"SELECT id_item_type, id_item FROM vector_item WHERE id_database = {databaseId}";
+        }
+    }
+}
