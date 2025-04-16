@@ -1,12 +1,9 @@
-﻿namespace InternationalSynchronizer.UpdateVectorItemTable
+﻿namespace InternationalSynchronizer.UpdateVectorItemTable.Model
 {
-    partial class UpdateVectorItemTableService
+    public class Subject
     {
-        private class Subject
-        {
-            public int Id { get; set; }
-            public string Name { get; set; } = "";
-            public List<Package> Packages { get; set; } = [];
-        }
+        public int Id { get; set; }
+        public string Name { get; set; } = "";
+        public List<Package> Packages { get; set; } = [];
     }
 }

@@ -1,4 +1,5 @@
-﻿using InternationalSynchronizer.Utilities;
+﻿using InternationalSynchronizer.UpdateVectorItemTable.Model;
+using InternationalSynchronizer.Utilities;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 using System.Data;
@@ -6,7 +7,7 @@ using static InternationalSynchronizer.UpdateVectorItemTable.DB.SqlQuery;
 
 namespace InternationalSynchronizer.UpdateVectorItemTable
 {
-    partial class UpdateVectorItemTableService : IUpdateVectorItemTableService
+    public class UpdateVectorItemTableService : IUpdateVectorItemTableService
     {
         public int RunUpdate()
         {

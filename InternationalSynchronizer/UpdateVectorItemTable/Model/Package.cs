@@ -1,12 +1,9 @@
-﻿namespace InternationalSynchronizer.UpdateVectorItemTable
+﻿namespace InternationalSynchronizer.UpdateVectorItemTable.Model
 {
-    partial class UpdateVectorItemTableService
+    public class Package
     {
-        private class Package
-        {
-            public int Id { get; set; }
-            public string Name { get; set; } = "";
-            public List<Theme> Themes { get; set; } = [];
-        }
+        public int Id { get; set; }
+        public string Name { get; set; } = "";
+        public List<Theme> Themes { get; set; } = [];
     }
 }
