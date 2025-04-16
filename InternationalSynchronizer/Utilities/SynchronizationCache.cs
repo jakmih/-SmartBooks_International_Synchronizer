@@ -30,7 +30,23 @@ namespace InternationalSynchronizer.Utilities
         {
             using var connection = new SqlConnection(synchronizationConnectionString);
             connection.Open();
-            return Databases.GetDatabaseId(database, connection);
+            using var command = new SqlCommand(GetDatabaseIdQuery(database), connection);
+            using var reader = command.ExecuteReader();
+
+            if (reader.Read())
+                return reader.GetInt32(0);
+
+            reader.Close();
+            return CreateDatabase(database, connection);
+        }
+
+        private static Int32 CreateDatabase(string database, SqlConnection connection)
+        {
+            using var command = new SqlCommand(GetInsertDatabaseQuery(database), connection);
+            command.ExecuteNonQuery();
+
+            using var idCommand = new SqlCommand("SELECT SCOPE_IDENTITY()", connection);
+            return Convert.ToInt32(idCommand.ExecuteScalar());
         }
 
         public List<Int32> GetSynchronizedIds(Filter filter, bool secondaryDatabaseSearch)

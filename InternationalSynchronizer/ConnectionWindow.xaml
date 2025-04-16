@@ -17,8 +17,6 @@
             <ComboBox x:Name="SecondaryDatabaseComboBox" Width="250" Height="30" IsEnabled="False" SelectionChanged="SecondaryDatabaseComboBox_SelectionChanged"/>
             <!-- Connect Button -->
             <Button Name="ConnectButton" Content="Pripojiť" Width="100" Height="30" Margin="20" Click="ConnectButton_Click" IsEnabled="False"/>
-            <!-- Update Databases Button -->
-            <Button Name="UpdateDatabasesButton" Content="Aktualizovať Databázy" Width="150" Height="30" Margin="30" Click="UpdateDatabasesButton_Click"/>
         </StackPanel>
     </Grid>
 </Window>

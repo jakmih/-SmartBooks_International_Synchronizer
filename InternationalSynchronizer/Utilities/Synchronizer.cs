@@ -1,6 +1,8 @@
-﻿using Microsoft.IdentityModel.Tokens;
+﻿using Microsoft.Extensions.Configuration;
+using Microsoft.IdentityModel.Tokens;
 using Newtonsoft.Json;
 using System.Data;
+using System.Diagnostics;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text;
@@ -14,7 +16,7 @@ namespace InternationalSynchronizer.Utilities
     public class Synchronizer(string syncConnectionString, string mainDatabase, string secondaryDatabase)
     {
         private static readonly string endpoint = "https://testaistorage.search.windows.net";
-        private static readonly string apiKey = "<REDACTED>";
+        private static readonly string apiKey = AppSettingsLoader.LoadConfiguration().GetSection("Keys")["AISearchKey"]!;
         private static readonly string indexName = "sb-final";
         private readonly SynchronizationCache synchronizationCache = new(syncConnectionString, mainDatabase, secondaryDatabase);
         private List<Int32> autoSyncedIds = [];
@@ -107,15 +109,23 @@ namespace InternationalSynchronizer.Utilities
 
             string url = $"{endpoint}/indexes/{indexName}/docs/search?api-version=2024-11-01-preview";
             HttpContent content = new StringContent(jsonQuery, Encoding.UTF8, "application/json");
-            HttpResponseMessage response = client.PostAsync(url, content).GetAwaiter().GetResult();
 
-            SearchResponse? searchResponse = response.Content.ReadFromJsonAsync<SearchResponse>().GetAwaiter().GetResult();
+            try
+            {
+                HttpResponseMessage response = client.PostAsync(url, content).GetAwaiter().GetResult();
+                SearchResponse? searchResponse = response.Content.ReadFromJsonAsync<SearchResponse>().GetAwaiter().GetResult();
+                Debug.WriteLine($"Response: {response.Content}");
+                if (searchResponse?.Value != null)
+                    foreach (var item in searchResponse.Value)
+                        ids.Add(item.IdItem);
 
-            if (searchResponse?.Value != null)
-                foreach (var item in searchResponse.Value)
-                    ids.Add(item.IdItem);
-
-            return ids;
+                return ids;
+            }
+            catch (HttpRequestException ex)
+            {
+                Debug.WriteLine($"HTTP request error: {ex.Message}");
+            }
+            return [];
         }
 
         public class SearchResponse

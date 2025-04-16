@@ -22,8 +22,8 @@ namespace InternationalSynchronizer
         private Filter filterStorage = new();
         private bool loadingComboBoxes = false;
         private Mode mode = Mode.FilterData;
-        private readonly IConfiguration config = AppSettingsLoader.LoadConfiguration();
         private readonly Synchronizer synchronizer;
+        private readonly string knowledgePreviewPassword;
 
         public MainWindow(string mainDatabase, string secondaryDatabase)
         {
@@ -32,6 +32,7 @@ namespace InternationalSynchronizer
             Show();
             Closing += MainWindow_Closing;
 
+            IConfiguration config = AppSettingsLoader.LoadConfiguration();
             string mainConnectionString = config.GetConnectionString(mainDatabase)!;
             string secondaryConnectionString = config.GetConnectionString(secondaryDatabase)!;
             string leftBaseUrl = config.GetRequiredSection("Urls")[mainDatabase]!;
@@ -43,6 +44,7 @@ namespace InternationalSynchronizer
 
             itemCache = new(mainConnectionString, secondaryConnectionString);
             synchronizer = new(config.GetConnectionString("Sync")!, mainDatabase, secondaryDatabase);
+            knowledgePreviewPassword = config.GetRequiredSection("Keys")["KnowledgePreview"]!;
 
             EnableScrollSynchronization(true);
             try
@@ -437,6 +439,7 @@ namespace InternationalSynchronizer
             IsEnabled = false;
             SqlException? exception;
             List<List<string>> rows;
+            loadingWindow.UpdateText("Hľadajú sa nové synchronizácie, prosím čakajte...");
             do
             {
                 exception = null;
@@ -456,6 +459,7 @@ namespace InternationalSynchronizer
                 loadingWindow.Hide();
             }
             while (!AutoSynced(exception, rows));
+            loadingWindow.UpdateText("Načitava sa, prosím čakajte...");
         }
 
         private void ConfirmButton_Click(object sender, RoutedEventArgs e)
@@ -788,7 +792,7 @@ namespace InternationalSynchronizer
             RowDefinition knowledgePreviewsRow = (RowDefinition)FindName("KnowledgePreviews");
             knowledgePreviewsRow.Height = new GridLength(1, GridUnitType.Star);
 
-            string pass = "&password=<REDACTED>";
+            string pass = $"&password={knowledgePreviewPassword}";
             string knowledgePath = "/extern_knowledge_preview?knowledgeID=";
 
             if (right)

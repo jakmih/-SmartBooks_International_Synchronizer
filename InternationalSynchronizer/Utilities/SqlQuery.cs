@@ -134,33 +134,6 @@
                 (id_sync_item_1 = {id1} AND id_sync_item_2 = {id2})
                 OR
                 (id_sync_item_1 = {id2} AND id_sync_item_2 = {id1})";
-        }
-
-        public static string GetBlobQuery()
-        {
-            return @"
-            SELECT 
-                sub.id, sub.name,
-                pac.id, pac.name + ' - ' + pac.description,
-                thm.id, thm.name,
-                tsk.id, tsk.knowledge_text_preview, tsk_t.id
-            FROM subject_type AS sub
-            LEFT JOIN package AS pac ON sub.id = pac.id_subject_type
-            LEFT JOIN theme AS thm ON pac.id = thm.id_package
-            LEFT JOIN theme_part AS thm_p ON thm_p.id_theme = thm.id
-            LEFT JOIN knowledge AS tsk ON tsk.id_theme_part = thm_p.id
-            LEFT JOIN knowledge_type AS tsk_t ON tsk_t.id = tsk.id_knowledge_type
-            ORDER BY sub.id, pac.id, thm.id, tsk.id";
-        }
-
-        public static string GetInsertVectorItemQuery(Int32 databaseId, Int32 subjectId, Int32 itemId, Int32 layer)
-        {
-            return $"INSERT INTO vector_item (id_database, id_subject, id_item, id_item_type, name, id_knowledge_type) VALUES ({databaseId}, {subjectId}, {itemId}, {layer}, @name, @type)";
-        }
-
-        public static string GetVectorItemsQuery(Int32 databaseId)
-        {
-            return $"SELECT id_item_type, id_item FROM vector_item WHERE id_database = {databaseId}";
-        }
+        }   
     }
 }

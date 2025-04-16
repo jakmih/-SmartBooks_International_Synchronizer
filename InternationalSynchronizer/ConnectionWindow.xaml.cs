@@ -52,55 +52,6 @@ namespace InternationalSynchronizer
             Close();
         }
 
-        public void UpdateDatabasesButton_Click(object sender, RoutedEventArgs e)
-        {
-            MessageBoxResult update = MessageBox.Show("Naozaj chcete aktualizovať všetky databázy do synchronizačnej databázy?",
-                                                      "Aktualizácia databáz", MessageBoxButton.YesNo, MessageBoxImage.Question);
-            if (update != MessageBoxResult.Yes)
-                return;
-
-            Dictionary<string, string> databasesDictionary = [];
-            foreach (string database in possibleConnections)
-                databasesDictionary.Add(database, config.GetConnectionString(database)!);
-
-            Databases databases = new(config.GetConnectionString("Sync")!, databasesDictionary);
-
-            UpdateDatabases(databases);
-        }
-
-        private async void UpdateDatabases(Databases databases)
-        {
-            IsEnabled = false;
-            loadingWindow.Show();
-
-            SqlException? exception = null;
-            int updated = await Task.Run(() =>
-            {
-                try
-                {
-                    return databases.Update();
-                }
-                catch (SqlException ex)
-                {
-                    exception = ex;
-                    return -1;
-                }
-            });
-
-            loadingWindow.Hide();
-            IsEnabled = true;
-
-            if (updated == -1)
-                MessageBox.Show("Skontrolujte internetové pripojenie a skúste to znova. Pokiaľ problem pretrváva, kontaktujte Vedenie.\nSpráva erroru: " + exception!.Message,
-                                "Chyba siete", MessageBoxButton.OK, MessageBoxImage.Error);
-            else if (updated == 0)
-                MessageBox.Show("Nenašli sa žiadné nové položky.\nSynchronizačná databáza je aktuálna.",
-                                "Aktualizácia databáz", MessageBoxButton.OK, MessageBoxImage.Information);
-            else
-                MessageBox.Show($"Úspešne aktualizované.\nPočet položiek pridaných do synchronizačnej databázy: {updated}",
-                                "Aktualizácia databáz", MessageBoxButton.OK, MessageBoxImage.Information);
-        }
-
         private void ConnectionWindow_Closing(object? sender, CancelEventArgs e) => loadingWindow.Close();
     }
 }

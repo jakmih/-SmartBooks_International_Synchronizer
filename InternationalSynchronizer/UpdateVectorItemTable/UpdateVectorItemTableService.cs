@@ -1,15 +1,31 @@
-﻿using Microsoft.Data.SqlClient;
+﻿using InternationalSynchronizer.Utilities;
+using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Configuration;
 using System.Data;
-using static InternationalSynchronizer.Utilities.SqlQuery;
 
-namespace InternationalSynchronizer.Utilities
+namespace InternationalSynchronizer.UpdateVectorItemTable
 {
-    class Databases(string synchronizationConnectionString, Dictionary<string, string> databases)
+    class UpdateVectorItemTableService : IUpdateVectorItemTableService
     {
-        private readonly string synchronizationConnectionString = synchronizationConnectionString;
-        private readonly Dictionary<string, string> databases = databases;
+        public int RunUpdate()
+        {
+            IConfiguration config = AppSettingsLoader.LoadConfiguration();
 
-        public static Int32 GetDatabaseId(string database, SqlConnection connection)
+            Dictionary<string, string> databases = [];
+            foreach (string database in config.GetRequiredSection("connectionStrings").GetChildren().Select(x => x.Key).Where(x => x != "Sync"))
+                databases.Add(database, config.GetConnectionString(database)!);
+
+            using var connection = new SqlConnection(config.GetConnectionString("Sync"));
+            connection.Open();
+
+            int updated = 0;
+            foreach (string database in databases.Keys)
+                updated += UpdateOneDatabase(databases[database], GetDatabaseId(database, connection), connection);
+
+            return updated;
+        }
+
+        private static int GetDatabaseId(string database, SqlConnection connection)
         {
             using var command = new SqlCommand(GetDatabaseIdQuery(database), connection);
             using var reader = command.ExecuteReader();
@@ -21,7 +37,7 @@ namespace InternationalSynchronizer.Utilities
             return CreateDatabase(database, connection);
         }
 
-        private static Int32 CreateDatabase(string database, SqlConnection connection)
+        private static int CreateDatabase(string database, SqlConnection connection)
         {
             using var command = new SqlCommand(GetInsertDatabaseQuery(database), connection);
             command.ExecuteNonQuery();
@@ -30,19 +46,7 @@ namespace InternationalSynchronizer.Utilities
             return Convert.ToInt32(idCommand.ExecuteScalar());
         }
 
-        public int Update()
-        {
-            using var connection = new SqlConnection(synchronizationConnectionString);
-            connection.Open();
-            
-            int updated = 0;
-            foreach (string database in databases.Keys)
-                updated += OneDatabase(databases[database], GetDatabaseId(database, connection), connection);
-            
-            return updated;
-        }
-
-        private static int OneDatabase(string connectionString, Int32 databaseId, SqlConnection connection)
+        private static int UpdateOneDatabase(string connectionString, int databaseId, SqlConnection connection)
         {
             Blob blob = new();
             blob.LoadData(connectionString);
@@ -97,7 +101,7 @@ namespace InternationalSynchronizer.Utilities
                                                      knowledge.Id,
                                                      3,
                                                      string.IsNullOrEmpty(knowledge.Name) ? DBNull.Value : knowledge.Name,
-                                                     (knowledge.Type == null) ? DBNull.Value : knowledge.Type);
+                                                     knowledge.Type == null ? DBNull.Value : knowledge.Type);
                         }
                     }
                 }
@@ -233,6 +237,38 @@ namespace InternationalSynchronizer.Utilities
             public int Id { get; set; }
             public string Name { get; set; } = "";
             public int? Type { get; set; }
+        }
+
+        private static string GetDatabaseIdQuery(string database)
+        {
+            return $"SELECT id FROM sb_database WHERE name = '{database}'";
+        }
+
+        public static string GetInsertDatabaseQuery(string database)
+        {
+            return $"INSERT INTO sb_database (name) VALUES ('{database}')";
+        }
+
+        private static string GetVectorItemsQuery(int databaseId)
+        {
+            return $"SELECT id_item_type, id_item FROM vector_item WHERE id_database = {databaseId}";
+        }
+
+        private static string GetBlobQuery()
+        {
+            return @"
+            SELECT 
+                sub.id, sub.name,
+                pac.id, pac.name + ' - ' + pac.description,
+                thm.id, thm.name,
+                tsk.id, tsk.knowledge_text_preview, tsk_t.id
+            FROM subject_type AS sub
+            LEFT JOIN package AS pac ON sub.id = pac.id_subject_type
+            LEFT JOIN theme AS thm ON pac.id = thm.id_package
+            LEFT JOIN theme_part AS thm_p ON thm_p.id_theme = thm.id
+            LEFT JOIN knowledge AS tsk ON tsk.id_theme_part = thm_p.id
+            LEFT JOIN knowledge_type AS tsk_t ON tsk_t.id = tsk.id_knowledge_type
+            ORDER BY sub.id, pac.id, thm.id, tsk.id";
         }
     }
 }
