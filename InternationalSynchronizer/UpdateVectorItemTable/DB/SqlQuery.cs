@@ -12,19 +12,15 @@
             return $"INSERT INTO sb_database (name) VALUES ('{database}')";
         }
 
-        public static string GetVectorItemsQuery(int databaseId)
-        {
-            return $"SELECT id_item_type, id_item FROM vector_item WHERE id_database = {databaseId}";
-        }
-
-        public static string GetBlobQuery()
+        public static string GetAllKnowledgesQuery()
         {
             return @"
             SELECT 
                 sub.id, sub.name,
                 pac.id, pac.name + ' - ' + pac.description,
                 thm.id, thm.name,
-                tsk.id, tsk.knowledge_text_preview, tsk_t.id
+                tsk.id, tsk.knowledge_text_preview, tsk_t.id,
+                pac.date_deleted, thm.date_deleted, tsk.date_deleted
             FROM subject_type AS sub
             LEFT JOIN package AS pac ON sub.id = pac.id_subject_type
             LEFT JOIN theme AS thm ON pac.id = thm.id_package

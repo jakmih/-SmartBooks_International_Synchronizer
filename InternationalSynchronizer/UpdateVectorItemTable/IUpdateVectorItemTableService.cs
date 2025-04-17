@@ -2,6 +2,6 @@
 {
     public interface IUpdateVectorItemTableService
     {
-        int RunUpdate();
+        bool RunUpdate();
     }
 }

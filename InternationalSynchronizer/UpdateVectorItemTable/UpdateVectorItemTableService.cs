@@ -3,13 +3,15 @@ using InternationalSynchronizer.Utilities;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 using System.Data;
+using System.Diagnostics;
+using System.Transactions;
 using static InternationalSynchronizer.UpdateVectorItemTable.DB.SqlQuery;
 
 namespace InternationalSynchronizer.UpdateVectorItemTable
 {
     public class UpdateVectorItemTableService : IUpdateVectorItemTableService
     {
-        public int RunUpdate()
+        public bool RunUpdate()
         {
             IConfiguration config = AppSettingsLoader.LoadConfiguration();
 
@@ -20,16 +22,32 @@ namespace InternationalSynchronizer.UpdateVectorItemTable
             using var connection = new SqlConnection(config.GetConnectionString("Sync"));
             connection.Open();
 
-            int updated = 0;
-            foreach (string database in databases.Keys)
-                updated += UpdateOneDatabase(databases[database], GetDatabaseId(database, connection), connection);
+            using var transaction = connection.BeginTransaction();
+            try
+            {
+                using var deleteCommand = new SqlCommand("DELETE FROM vector_item", connection, transaction);
+                deleteCommand.ExecuteNonQuery();
 
-            return updated;
+                int updated = 0;
+                foreach (string database in databases.Keys)
+                    updated += UpdateOneDatabase(databases[database], GetDatabaseId(database, connection, transaction), connection, transaction);
+
+                // TODO add timestamp to the database
+
+                transaction.Commit();
+                return updated > 0;
+            }
+            catch (Exception ex)
+            {
+                transaction.Rollback();
+                Debug.WriteLine("Transaction failed: " + ex.Message);
+                return false;
+            }
         }
 
-        private static int GetDatabaseId(string database, SqlConnection connection)
+        private static int GetDatabaseId(string database, SqlConnection connection, SqlTransaction transaction)
         {
-            using var command = new SqlCommand(GetDatabaseIdQuery(database), connection);
+            using var command = new SqlCommand(GetDatabaseIdQuery(database), connection, transaction);
             using var reader = command.ExecuteReader();
 
             if (reader.Read())
@@ -48,77 +66,140 @@ namespace InternationalSynchronizer.UpdateVectorItemTable
             return Convert.ToInt32(idCommand.ExecuteScalar());
         }
 
-        private static int UpdateOneDatabase(string connectionString, int databaseId, SqlConnection connection)
+        private static int UpdateOneDatabase(string connectionString, int databaseId, SqlConnection connection, SqlTransaction transaction)
         {
-            Blob blob = new();
-            blob.LoadData(connectionString, GetBlobQuery());
-
-            Compare compare = new();
-            compare.LoadData(connection, GetVectorItemsQuery(databaseId));
+            List<Subject> subjects = LoadData(connectionString);
 
             var vectorTable = new DataTable();
             vectorTable.Columns.Add("id_database", typeof(int));
-            vectorTable.Columns.Add("id_subject", typeof(int));
             vectorTable.Columns.Add("id_item", typeof(int));
             vectorTable.Columns.Add("id_item_type", typeof(int));
             vectorTable.Columns.Add("name", typeof(string));
+            vectorTable.Columns.Add("id_subject", typeof(int));
+            vectorTable.Columns.Add("id_package", typeof(int));
+            vectorTable.Columns.Add("id_theme", typeof(int));
             vectorTable.Columns.Add("id_knowledge_type", typeof(int));
 
-            foreach (var subject in blob.Subjects)
+            foreach (var subject in subjects)
             {
                 foreach (var package in subject.Packages)
                 {
                     if (package.Name.StartsWith("*IMPORT*"))
                         continue;
 
-                    if (!compare.PackageIds.Contains(package.Id))
-                        vectorTable.Rows.Add(databaseId,
-                                             subject.Id,
-                                             package.Id,
-                                             1,
-                                             string.IsNullOrEmpty(package.Name) ? DBNull.Value : package.Name,
-                                             DBNull.Value);
+                    vectorTable.Rows.Add(databaseId,
+                                         package.Id,
+                                         1,
+                                         string.IsNullOrEmpty(package.Name) ? DBNull.Value : package.Name,
+                                         subject.Id,
+                                         DBNull.Value,
+                                         DBNull.Value,
+                                         DBNull.Value);
 
                     foreach (var theme in package.Themes)
                     {
                         if (theme.Name.StartsWith("*IMPORT*"))
                             continue;
 
-                        if (!compare.ThemeIds.Contains(theme.Id))
-                            vectorTable.Rows.Add(databaseId,
-                                                 subject.Id,
-                                                 theme.Id,
-                                                 2,
-                                                 string.IsNullOrEmpty(theme.Name) ? DBNull.Value : theme.Name,
-                                                 DBNull.Value);
+                        vectorTable.Rows.Add(databaseId,
+                                             theme.Id,
+                                             2,
+                                             string.IsNullOrEmpty(theme.Name) ? DBNull.Value : theme.Name,
+                                             subject.Id,
+                                             package.Id,
+                                             DBNull.Value,
+                                             DBNull.Value);
 
                         foreach (var knowledge in theme.Knowledges)
                         {
                             if (knowledge.Name.StartsWith("*IMPORT*"))
                                 continue;
 
-                            if (!compare.KnowledgeIds.Contains(knowledge.Id))
-                                vectorTable.Rows.Add(databaseId,
-                                                     subject.Id,
-                                                     knowledge.Id,
-                                                     3,
-                                                     string.IsNullOrEmpty(knowledge.Name) ? DBNull.Value : knowledge.Name,
-                                                     knowledge.Type == null ? DBNull.Value : knowledge.Type);
+                            vectorTable.Rows.Add(databaseId,
+                                                 knowledge.Id,
+                                                 3,
+                                                 string.IsNullOrEmpty(knowledge.Name) ? DBNull.Value : knowledge.Name,
+                                                 subject.Id,
+                                                 package.Id,
+                                                 theme.Id,
+                                                 knowledge.Type == null ? DBNull.Value : knowledge.Type);
                         }
                     }
                 }
             }
 
-            using var bulkCopy = new SqlBulkCopy(connection){ DestinationTableName = "vector_item" };
+            using var bulkCopy = new SqlBulkCopy(connection, SqlBulkCopyOptions.Default, transaction) { DestinationTableName = "vector_item" };
             bulkCopy.ColumnMappings.Add("id_database", "id_database");
-            bulkCopy.ColumnMappings.Add("id_subject", "id_subject");
             bulkCopy.ColumnMappings.Add("id_item", "id_item");
             bulkCopy.ColumnMappings.Add("id_item_type", "id_item_type");
             bulkCopy.ColumnMappings.Add("name", "name");
+            bulkCopy.ColumnMappings.Add("id_subject", "id_subject");
+            bulkCopy.ColumnMappings.Add("id_package", "id_package");
+            bulkCopy.ColumnMappings.Add("id_theme", "id_theme");
             bulkCopy.ColumnMappings.Add("id_knowledge_type", "id_knowledge_type");
             bulkCopy.WriteToServer(vectorTable);
 
             return vectorTable.Rows.Count;
+        }
+
+        private static List<Subject> LoadData(string connectionString)
+        {
+            using var connection = new SqlConnection(connectionString);
+            connection.Open();
+
+            using var command = new SqlCommand(GetAllKnowledgesQuery(), connection);
+            using var reader = command.ExecuteReader();
+
+            List<Subject> subjects = [];
+            Dictionary<int, Subject> subjectDict = [];
+            Dictionary<int, Package> packageDict = [];
+            Dictionary<int, Theme> themeDict = [];
+
+            while (reader.Read())
+            {
+
+                int subjectId = reader.GetInt32(0);
+                if (!subjectDict.TryGetValue(subjectId, out var subject))
+                {
+                    subject = new Subject { Id = subjectId, Name = reader.IsDBNull(1) ? "" : reader.GetString(1) };
+                    subjectDict[subjectId] = subject;
+                    subjects.Add(subject);
+                }
+
+                if (!reader.IsDBNull(2) && reader.IsDBNull(9))
+                {
+                    int packageId = reader.GetInt32(2);
+                    if (!packageDict.TryGetValue(packageId, out var package))
+                    {
+                        package = new Package { Id = packageId, Name = reader.IsDBNull(3) ? "" : reader.GetString(3) };
+                        packageDict[packageId] = package;
+                        subject.Packages.Add(package);
+                    }
+
+                    if (!reader.IsDBNull(4) && reader.IsDBNull(10))
+                    {
+                        int themeId = reader.GetInt32(4);
+                        if (!themeDict.TryGetValue(themeId, out var theme))
+                        {
+                            theme = new Theme { Id = themeId, Name = reader.IsDBNull(5) ? "" : reader.GetString(5) };
+                            themeDict[themeId] = theme;
+                            package.Themes.Add(theme);
+                        }
+
+                        if (!reader.IsDBNull(6) && reader.IsDBNull(11))
+                        {
+                            Knowledge knowledge = new()
+                            {
+                                Id = reader.GetInt32(6),
+                                Name = reader.IsDBNull(7) ? "" : reader.GetString(7),
+                                Type = reader.IsDBNull(8) ? null : reader.GetInt32(8),
+                            };
+                            theme.Knowledges.Add(knowledge);
+                        }
+                    }
+                }
+            }
+            return subjects;
         }
     }
 }
