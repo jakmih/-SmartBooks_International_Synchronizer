@@ -12,6 +12,11 @@
             return $"INSERT INTO sb_database (name) VALUES ('{database}')";
         }
 
+        public static string ClearVectorItemTable()
+        {
+            return "DELETE FROM vector_item";
+        }
+
         public static string GetAllKnowledgesQuery()
         {
             return @"
@@ -19,14 +24,20 @@
                 sub.id, sub.name,
                 pac.id, pac.name + ' - ' + pac.description,
                 thm.id, thm.name,
-                tsk.id, tsk.knowledge_text_preview, tsk_t.id,
-                pac.date_deleted, thm.date_deleted, tsk.date_deleted
+                tsk.id, tsk.knowledge_text_preview, tsk_t.id
             FROM subject_type AS sub
             LEFT JOIN package AS pac ON sub.id = pac.id_subject_type
             LEFT JOIN theme AS thm ON pac.id = thm.id_package
             LEFT JOIN theme_part AS thm_p ON thm_p.id_theme = thm.id
             LEFT JOIN knowledge AS tsk ON tsk.id_theme_part = thm_p.id
             LEFT JOIN knowledge_type AS tsk_t ON tsk_t.id = tsk.id_knowledge_type
+            WHERE pac.date_deleted IS NULL
+            AND thm.date_deleted IS NULL
+            AND tsk.date_deleted IS NULL
+            AND sub.name NOT LIKE '[*]IMPORT[*]%'
+            AND pac.name NOT LIKE '[*]IMPORT[*]%'
+            AND thm.name NOT LIKE '[*]IMPORT[*]%'
+            AND tsk.knowledge_text_preview NOT LIKE '[*]IMPORT[*]%'
             ORDER BY sub.id, pac.id, thm.id, tsk.id";
         }
     }

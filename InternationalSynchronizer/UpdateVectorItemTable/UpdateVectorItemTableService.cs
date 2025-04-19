@@ -4,7 +4,8 @@ using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 using System.Data;
 using System.Diagnostics;
-using System.Transactions;
+using System.Net.Http.Headers;
+using System.Net.Http;
 using static InternationalSynchronizer.UpdateVectorItemTable.DB.SqlQuery;
 
 namespace InternationalSynchronizer.UpdateVectorItemTable
@@ -25,7 +26,7 @@ namespace InternationalSynchronizer.UpdateVectorItemTable
             using var transaction = connection.BeginTransaction();
             try
             {
-                using var deleteCommand = new SqlCommand("DELETE FROM vector_item", connection, transaction);
+                using var deleteCommand = new SqlCommand(ClearVectorItemTable(), connection, transaction);
                 deleteCommand.ExecuteNonQuery();
 
                 int updated = 0;
@@ -35,7 +36,11 @@ namespace InternationalSynchronizer.UpdateVectorItemTable
                 // TODO add timestamp to the database
 
                 transaction.Commit();
-                return updated > 0;
+
+                if (updated > 0)
+                    return SendHTTPRequestForVectorization();
+
+                return false;
             }
             catch (Exception ex)
             {
@@ -84,9 +89,6 @@ namespace InternationalSynchronizer.UpdateVectorItemTable
             {
                 foreach (var package in subject.Packages)
                 {
-                    if (package.Name.StartsWith("*IMPORT*"))
-                        continue;
-
                     vectorTable.Rows.Add(databaseId,
                                          package.Id,
                                          1,
@@ -98,9 +100,6 @@ namespace InternationalSynchronizer.UpdateVectorItemTable
 
                     foreach (var theme in package.Themes)
                     {
-                        if (theme.Name.StartsWith("*IMPORT*"))
-                            continue;
-
                         vectorTable.Rows.Add(databaseId,
                                              theme.Id,
                                              2,
@@ -112,9 +111,6 @@ namespace InternationalSynchronizer.UpdateVectorItemTable
 
                         foreach (var knowledge in theme.Knowledges)
                         {
-                            if (knowledge.Name.StartsWith("*IMPORT*"))
-                                continue;
-
                             vectorTable.Rows.Add(databaseId,
                                                  knowledge.Id,
                                                  3,
@@ -166,7 +162,7 @@ namespace InternationalSynchronizer.UpdateVectorItemTable
                     subjects.Add(subject);
                 }
 
-                if (!reader.IsDBNull(2) && reader.IsDBNull(9))
+                if (!reader.IsDBNull(2))
                 {
                     int packageId = reader.GetInt32(2);
                     if (!packageDict.TryGetValue(packageId, out var package))
@@ -176,7 +172,7 @@ namespace InternationalSynchronizer.UpdateVectorItemTable
                         subject.Packages.Add(package);
                     }
 
-                    if (!reader.IsDBNull(4) && reader.IsDBNull(10))
+                    if (!reader.IsDBNull(4))
                     {
                         int themeId = reader.GetInt32(4);
                         if (!themeDict.TryGetValue(themeId, out var theme))
@@ -186,7 +182,7 @@ namespace InternationalSynchronizer.UpdateVectorItemTable
                             package.Themes.Add(theme);
                         }
 
-                        if (!reader.IsDBNull(6) && reader.IsDBNull(11))
+                        if (!reader.IsDBNull(6))
                         {
                             Knowledge knowledge = new()
                             {
@@ -200,6 +196,22 @@ namespace InternationalSynchronizer.UpdateVectorItemTable
                 }
             }
             return subjects;
+        }
+
+        private static bool SendHTTPRequestForVectorization()
+        {
+            using var httpClient = new HttpClient();
+
+            var endpoint = "https://testaistorage.search.windows.net/indexers/sb-final-indexer/run?api-version=2020-06-30";
+            var apiKey = AppSettingsLoader.LoadConfiguration()["Keys:AISearchKey"];
+
+            httpClient.DefaultRequestHeaders.Clear();
+            httpClient.DefaultRequestHeaders.Add("api-key", apiKey);
+            httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+            var response = httpClient.PostAsync(endpoint, null).Result;
+
+            return response.IsSuccessStatusCode;
         }
     }
 }
