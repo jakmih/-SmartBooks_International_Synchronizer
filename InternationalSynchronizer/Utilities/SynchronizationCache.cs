@@ -6,10 +6,10 @@ namespace InternationalSynchronizer.Utilities
     public class SynchronizationCache
     {
         private readonly string synchronizationConnectionString;
-        private Dictionary<Layer, Dictionary<Int32, Int32>> cache = [];
-        private Dictionary<Layer, Dictionary<Int32, Int32>> switchCache = [];
-        private Int32 mainDatabaseId;
-        private Int32 secondaryDatabaseId;
+        private readonly Dictionary<Layer, Dictionary<Int32, Int32>> cache = [];
+        private readonly Dictionary<Layer, Dictionary<Int32, Int32>> mirrorCache = [];
+        private readonly Int32 mainDatabaseId;
+        private readonly Int32 secondaryDatabaseId;
 
         public SynchronizationCache(string syncConnectionString, string mainDatabase, string secondaryDatabase)
         {
@@ -17,10 +17,10 @@ namespace InternationalSynchronizer.Utilities
             cache.Add(Layer.Package, []);
             cache.Add(Layer.Theme, []);
             cache.Add(Layer.Knowledge, []);
-            switchCache.Add(Layer.Subject, []);
-            switchCache.Add(Layer.Package, []);
-            switchCache.Add(Layer.Theme, []);
-            switchCache.Add(Layer.Knowledge, []);
+            mirrorCache.Add(Layer.Subject, []);
+            mirrorCache.Add(Layer.Package, []);
+            mirrorCache.Add(Layer.Theme, []);
+            mirrorCache.Add(Layer.Knowledge, []);
             synchronizationConnectionString = syncConnectionString;
             mainDatabaseId = GetDatabaseId(mainDatabase);
             secondaryDatabaseId = GetDatabaseId(secondaryDatabase);
@@ -67,7 +67,7 @@ namespace InternationalSynchronizer.Utilities
                 layer = Layer.Knowledge;
 
             if (secondaryDatabaseSearch)
-                return switchCache[layer].TryGetValue(id, out Int32 value) ? value : LoadSynchronizedId(layer, id, true, connection);
+                return mirrorCache[layer].TryGetValue(id, out Int32 value) ? value : LoadSynchronizedId(layer, id, true, connection);
             else
                 return cache[layer].TryGetValue(id, out Int32 value) ? value : LoadSynchronizedId(layer, id, false, connection);
         }
@@ -142,8 +142,8 @@ namespace InternationalSynchronizer.Utilities
             if (layer == Layer.KnowledgeType)
                 layer = Layer.Knowledge;
 
-            if (!switchCache[layer].TryAdd(keyId, valueId))
-                switchCache[layer][keyId] = valueId;
+            if (!mirrorCache[layer].TryAdd(keyId, valueId))
+                mirrorCache[layer][keyId] = valueId;
         }
 
         private static Int32 GetOrCreateSyncItem(SqlConnection connection, Int32 id, Layer layer, Int32 databaseId)
@@ -180,7 +180,7 @@ namespace InternationalSynchronizer.Utilities
             if ((pairItemId = GetSynchronizedId(layer, id)) == -1)
                 return;
 
-            switchCache[layer].Remove(cache[layer].GetValueOrDefault(id));
+            mirrorCache[layer].Remove(cache[layer].GetValueOrDefault(id));
             cache[layer].Remove(id);
 
             using var connection = new SqlConnection(synchronizationConnectionString);
@@ -191,12 +191,6 @@ namespace InternationalSynchronizer.Utilities
 
             using var command = new SqlCommand(GetDeleteSyncPairQuery(id1, id2), connection);
             command.ExecuteNonQuery();
-        }
-
-        public void SwitchDatabases()
-        {
-            (cache, switchCache) = (switchCache, cache);
-            (mainDatabaseId, secondaryDatabaseId) = (secondaryDatabaseId, mainDatabaseId);
         }
 
         public Int32 GetSecondaryDatabaseId() => secondaryDatabaseId;

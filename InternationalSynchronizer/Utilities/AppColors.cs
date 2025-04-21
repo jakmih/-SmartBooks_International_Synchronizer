@@ -16,7 +16,6 @@ namespace InternationalSynchronizer.Utilities
         public static readonly SolidColorBrush CONFIRM_BUTTON_COLOR = new(Colors.Lime);
         public static readonly SolidColorBrush MANUAL_SYNC_BUTTON_COLOR = new(Colors.Yellow);
         public static readonly SolidColorBrush DELETE_SYNC_BUTTON_COLOR = new(Colors.Red);
-        public static readonly SolidColorBrush SWITCH_DATABASES_BUTTON_COLOR = new(Colors.Cyan);
         public static readonly SolidColorBrush CHOOSE_NEW_DATABASES_BUTTON_COLOR = new(Colors.Magenta);
     }
 }

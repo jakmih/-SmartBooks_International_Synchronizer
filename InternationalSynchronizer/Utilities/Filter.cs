@@ -12,11 +12,11 @@ namespace InternationalSynchronizer.Utilities
 
         public Filter()
         {
-            selectedUpperLayerId.Add(Layer.Subject, 0);
-            selectedUpperLayerId.Add(Layer.Package, 0);
-            selectedUpperLayerId.Add(Layer.Theme, 0);
-            selectedUpperLayerId.Add(Layer.Knowledge, 0);
-            selectedUpperLayerId.Add(Layer.KnowledgeType, 0);
+            selectedUpperLayerId.Add(Layer.Subject, -1);
+            selectedUpperLayerId.Add(Layer.Package, -1);
+            selectedUpperLayerId.Add(Layer.Theme, -1);
+            selectedUpperLayerId.Add(Layer.Knowledge, -1);
+            selectedUpperLayerId.Add(Layer.KnowledgeType, -1);
             layerIds.Add(Layer.Subject, []);
             layerIds.Add(Layer.Package, []);
             layerIds.Add(Layer.Theme, []);
@@ -28,7 +28,7 @@ namespace InternationalSynchronizer.Utilities
 
         public void SetLayer(Layer layer) => this.layer = layer;
 
-        public void SetIds(List<Int32> ids) => layerIds[layer] = ids;
+        public void SetIds(List<Int32> ids) => layerIds[layer] = [..ids];
 
         public Int32 GetUpperLayerId() => selectedUpperLayerId[layer];
 
@@ -37,7 +37,7 @@ namespace InternationalSynchronizer.Utilities
             if (layer == Layer.KnowledgeType)
                 return selectedUpperLayerId[layer];
 
-            return layerIds[layer].Count > rowIndex ? layerIds[layer][rowIndex] : -1;
+            return (layerIds[layer].Count > rowIndex && rowIndex >= 0) ? layerIds[layer][rowIndex] : -1;
         }
 
         public List<Int32> GetIds()
@@ -48,12 +48,15 @@ namespace InternationalSynchronizer.Utilities
             return layerIds[layer];
         }
 
-        public void SetLayerId(Int32 id_key)
+        public void SetLayerId(Int32 id_index)
         {
-            if (id_key == -1 || layer == Layer.Subject)
+            if (layer == Layer.Subject || id_index < 0 || id_index >= layerIds[layer - 1].Count)
+            {
+                selectedUpperLayerId[layer] = -1;
                 return;
+            }
 
-            selectedUpperLayerId[layer] = layerIds[layer - 1][id_key];
+            selectedUpperLayerId[layer] = layerIds[layer - 1][id_index];
         }
 
         public void SaveComboBoxes(List<ComboBox> comboBoxes)

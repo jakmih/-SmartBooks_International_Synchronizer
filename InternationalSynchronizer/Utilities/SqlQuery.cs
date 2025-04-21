@@ -46,9 +46,33 @@
             return query;
         }
 
+        private static string GetFilterQuery(Layer layer)
+        {
+            string query = " ";
+
+            if (layer == Layer.Subject)
+                return query;
+
+            query += " AND pac.date_deleted IS NULL AND pac.name NOT LIKE '[*]IMPORT[*]%'";
+
+            if (layer == Layer.Package)
+                return query;
+
+            query += " AND thm.date_deleted IS NULL AND thm.name NOT LIKE '[*]IMPORT[*]%'";
+
+            if (layer == Layer.Theme)
+                return query;
+
+            query += " AND tsk.date_deleted IS NULL AND tsk.knowledge_text_preview NOT LIKE '[*]IMPORT[*]%'";
+            return query;
+        }
+
         public static string GetItemQuery(Layer layer, Int32 id, bool wholeLayer)
         {
             string query = GetSELECTQuery(layer) + GetFROMQuery(layer);
+
+            string filterQuery = GetFilterQuery(layer);
+
             if (layer != Layer.KnowledgeType && !wholeLayer)
                 layer++;
 
@@ -57,16 +81,16 @@
                 case Layer.Subject:
                     break;
                 case Layer.Package:
-                    query += " WHERE sub.id = " + id;
+                    query += " WHERE sub.id = " + id + filterQuery;
                     break;
                 case Layer.Theme:
-                    query += " WHERE pac.id = " + id;
+                    query += " WHERE pac.id = " + id + filterQuery;
                     break;
                 case Layer.Knowledge:
-                    query += " WHERE thm.id = " + id;
+                    query += " WHERE thm.id = " + id + filterQuery;
                     break;
                 case Layer.KnowledgeType:
-                    query += " WHERE tsk.id = " + id;
+                    query += " WHERE tsk.id = " + id + filterQuery;
                     break;
             }
             return query;

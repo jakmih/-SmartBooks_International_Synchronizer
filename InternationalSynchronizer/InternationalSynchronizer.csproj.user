@@ -7,6 +7,9 @@
     </ApplicationDefinition>
   </ItemGroup>
   <ItemGroup>
+    <Compile Update="Components\MyDataGrid.xaml.cs">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Update="ConnectionWindow.xaml.cs">
       <SubType>Code</SubType>
     </Compile>

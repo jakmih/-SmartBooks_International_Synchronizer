@@ -1,0 +1,25 @@
+﻿<UserControl x:Class="InternationalSynchronizer.Components.MyDataGrid"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             xmlns:local="clr-namespace:InternationalSynchronizer.Components" xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+             mc:Ignorable="d" 
+             Height="Auto" HorizontalAlignment="Stretch">
+    <Grid>
+        <Grid.RowDefinitions>
+            <!-- Title -->
+            <RowDefinition Height="20"/>
+            <!-- DataGrid -->
+            <RowDefinition Height="*"/>
+            <!-- WebView -->
+            <RowDefinition x:Name="KnowledgePreviewRow" Height="0"/>
+        </Grid.RowDefinitions>
+        
+        <TextBlock x:Name="Title" Grid.Row="0" FontSize="15" FontWeight="Bold" HorizontalAlignment="Center"/>
+
+        <DataGrid x:Name="DataGrid" Grid.Row="1" IsReadOnly="True" PreviewMouseLeftButtonUp="DataGrid_PreviewMouseLeftButtonUp" CanUserSortColumns="False" LoadingRow="DataGrid_LoadingRow" ScrollViewer.HorizontalScrollBarVisibility="Visible" CanUserResizeRows="False" SelectionMode="Single"/>
+
+        <wv2:WebView2 x:Name="KnowledgePreview" Grid.Row="2"/>
+    </Grid>
+</UserControl>
