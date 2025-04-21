@@ -38,6 +38,7 @@
             AND pac.name NOT LIKE '[*]IMPORT[*]%'
             AND thm.name NOT LIKE '[*]IMPORT[*]%'
             AND tsk.knowledge_text_preview NOT LIKE '[*]IMPORT[*]%'
+            AND tsk.knowledge_text_preview IS NOT NULL
             ORDER BY sub.id, pac.id, thm.id, tsk.id";
         }
     }

@@ -89,32 +89,34 @@ namespace InternationalSynchronizer.UpdateVectorItemTable
             {
                 foreach (var package in subject.Packages)
                 {
-                    vectorTable.Rows.Add(databaseId,
-                                         package.Id,
-                                         1,
-                                         string.IsNullOrEmpty(package.Name) ? DBNull.Value : package.Name,
-                                         subject.Id,
-                                         DBNull.Value,
-                                         DBNull.Value,
-                                         DBNull.Value);
+                    if (!string.IsNullOrEmpty(package.Name))
+                        vectorTable.Rows.Add(databaseId,
+                                             package.Id,
+                                             1,
+                                             package.Name,
+                                             subject.Id,
+                                             DBNull.Value,
+                                             DBNull.Value,
+                                             DBNull.Value);
 
                     foreach (var theme in package.Themes)
                     {
-                        vectorTable.Rows.Add(databaseId,
-                                             theme.Id,
-                                             2,
-                                             string.IsNullOrEmpty(theme.Name) ? DBNull.Value : theme.Name,
-                                             subject.Id,
-                                             package.Id,
-                                             DBNull.Value,
-                                             DBNull.Value);
+                        if (!string.IsNullOrEmpty(package.Name))
+                            vectorTable.Rows.Add(databaseId,
+                                                 theme.Id,
+                                                 2,
+                                                 theme.Name,
+                                                 subject.Id,
+                                                 package.Id,
+                                                 DBNull.Value,
+                                                 DBNull.Value);
 
                         foreach (var knowledge in theme.Knowledges)
                         {
                             vectorTable.Rows.Add(databaseId,
                                                  knowledge.Id,
                                                  3,
-                                                 string.IsNullOrEmpty(knowledge.Name) ? DBNull.Value : knowledge.Name,
+                                                 knowledge.Name,
                                                  subject.Id,
                                                  package.Id,
                                                  theme.Id,
