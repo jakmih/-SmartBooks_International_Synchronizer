@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:InternationalSynchronizer"
         mc:Ignorable="d"
-        Title="Načitava sa" Height="350" Width="600" WindowStartupLocation="CenterScreen" WindowStyle="None" ShowInTaskbar="False" Topmost="True">
+        Title="Načitava sa" Height="350" Width="600" Cursor="Wait" WindowStartupLocation="CenterScreen" WindowStyle="None" ShowInTaskbar="False" Topmost="True">
     <Grid>
         <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
             <TextBlock x:Name="LoadingTextBlock" Text="Načitava sa, prosím čakajte..." FontSize="19" FontWeight="Bold" 

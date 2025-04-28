@@ -1,5 +1,6 @@
 ﻿using System.Data;
 using System.Windows.Media;
+using static InternationalSynchronizer.Utilities.AppColors;
 
 namespace InternationalSynchronizer.Utilities
 {
@@ -48,6 +49,8 @@ namespace InternationalSynchronizer.Utilities
             if (row >= 0 && row < RowCount())
                 for (int i = 0; i < ColumnCount(); i++)
                     dataTable.Rows[row][i] = "";
+            ids[row] = -1;
+            rowColors[row] = NEUTRAL_COLOR;
         }
 
         public List<SolidColorBrush> GetRowColors() => rowColors;
@@ -70,12 +73,12 @@ namespace InternationalSynchronizer.Utilities
             return ids[row];
         }
 
-        public void SetRowColor(int index, SolidColorBrush SYNCED_COLOR)
+        public void SetRowColor(int index, SolidColorBrush color)
         {
             if (index < 0 || index >= rowColors.Count)
                 return;
 
-            rowColors[index] = SYNCED_COLOR;
+            rowColors[index] = color;
         }
 
         public void AddRow(string[] row, SolidColorBrush color, Int32 id)
@@ -124,17 +127,18 @@ namespace InternationalSynchronizer.Utilities
                     {
                         columns.Add("Pod-Téma");
                         columns.Add("Úloha");
-                        if (layer != Layer.Knowledge)
-                            columns.Add("Typ úlohy");
+                        columns.Add("Typ úlohy");
                     }
                 }
             }
 
             if (reversed)
                 columns.Reverse();
+            else if (layer != Layer.Knowledge && layer != Layer.KnowledgeType)
+                columns.Add("Synchronizované");
 
             foreach (string column in columns)
-                table.Columns.Add(column, typeof(string));
+                    table.Columns.Add(column, typeof(string));
 
             return table;
         }

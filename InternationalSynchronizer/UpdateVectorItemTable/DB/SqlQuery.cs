@@ -2,22 +2,22 @@
 {
     class SqlQuery
     {
-        public static string GetDatabaseIdQuery(string database)
+        public static string DatabaseIdQuery(string database)
         {
             return $"SELECT id FROM sb_database WHERE name = '{database}'";
         }
 
-        public static string GetInsertDatabaseQuery(string database)
+        public static string InsertDatabaseQuery(string database)
         {
             return $"INSERT INTO sb_database (name) VALUES ('{database}')";
         }
 
         public static string ClearVectorItemTable()
         {
-            return "DELETE FROM vector_item";
+            return "TRUNCATE TABLE vector_item";
         }
 
-        public static string GetAllKnowledgesQuery()
+        public static string AllKnowledgesQuery()
         {
             return @"
             SELECT 

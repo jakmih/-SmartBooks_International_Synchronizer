@@ -1,63 +1,73 @@
 ﻿using System.Windows;
 using System.Windows.Controls;
 using InternationalSynchronizer.Utilities;
+using Microsoft.Data.SqlClient;
 using static InternationalSynchronizer.Utilities.AppColors;
 
 namespace InternationalSynchronizer.Components
 {
     public partial class FilterPanel : UserControl
     {
-        private Filter filter = new();
-        private Filter filterStorage = new();
-        private bool loadingComboBoxes = false;
-        private Layer previousLayer = Layer.Subject;
+        private Filter _filter = new();
+        public Filter Filter => _filter;
+        private Filter _filterStorage = new();
+        public Filter FilterStorage => _filterStorage;
+        private bool _loadingComboBoxes = false;
 
-        public event Action<Filter>? FiltereChanged;
+        public event Func<Task>? FiltereChanged;
 
         public FilterPanel()
         {
             InitializeComponent();
-            filterStorage.SaveComboBoxes([SubjectComboBox, PackageComboBox, ThemeComboBox, KnowledgeComboBox]);
+            _filterStorage.SaveComboBoxes([SubjectComboBox, PackageComboBox, ThemeComboBox, KnowledgeComboBox]);
             BackButton.Background = BACK_BUTTON_COLOR;
         }
 
-        public void LoadSubjects()
+        public async Task LoadSubjectsAsync()
         {
+            Layer previousLayer = _filter.Layer;
+            _filter.Layer = Layer.Subject;
+            await FiltereChanged!.Invoke();
             BackButton.IsEnabled = false;
-            previousLayer = filter.GetLayer();
-            filter.SetLayer(Layer.Subject);
-            FiltereChanged?.Invoke(filter);
         }
 
-        private void ComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private async void ComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (sender is not ComboBox comboBox || comboBox.SelectedItem == null || loadingComboBoxes)
+            if (sender is not ComboBox comboBox || comboBox.SelectedItem == null || _loadingComboBoxes)
                 return;
 
-            BackButton.IsEnabled = false;
-            previousLayer = filter.GetLayer();
+            Layer previousLayer = _filter.Layer;
 
             if (comboBox == SubjectComboBox)
-                filter.SetLayer(Layer.Package);
+                _filter.Layer = Layer.Package;
             else if (comboBox == PackageComboBox)
-                filter.SetLayer(Layer.Theme);
+                _filter.Layer = Layer.Theme;
             else if (comboBox == ThemeComboBox)
-                filter.SetLayer(Layer.Knowledge);
+                _filter.Layer = Layer.Knowledge;
             else if (comboBox == KnowledgeComboBox)
-                filter.SetLayer(Layer.KnowledgeType);
+                _filter.Layer = Layer.KnowledgeType;
             else
                 return;
             
-            filter.SetLayerId(comboBox.SelectedIndex);
+            _filter.SetLayerId(comboBox.SelectedIndex);
 
-            FiltereChanged?.Invoke(filter);
-            BackButton.IsEnabled = true;
+            try
+            {
+                await FiltereChanged!.Invoke();
+                BackButton.IsEnabled = true;
+            }
+            catch (SqlException ex)
+            {
+                MessageBox.Show("Skontrolujte internetové pripojenie a skúste znova. Pokiaľ problem pretrváva, kontaktujte Vedenie.\n\nSpráva erroru: " + ex.Message,
+                                "Chyba siete", MessageBoxButton.OK, MessageBoxImage.Error);
+                _filter.Layer = previousLayer;
+                comboBox.SelectedIndex = -1;
+            }
         }
 
         public void DataGridSelectionChanged(int index)
         {
-            BackButton.IsEnabled = false;
-            switch (filter.GetLayer())
+            switch (_filter.Layer)
             {
                 case Layer.Subject:
                     SubjectComboBox.SelectedIndex = index;
@@ -78,8 +88,8 @@ namespace InternationalSynchronizer.Components
 
         public void UpdateFilter(List<string> filterData)
         {
-            EnableComboBox(filter.GetLayer());
-            ComboBox? currentComboBox = GetCombobox(filter.GetLayer());
+            EnableComboBox(_filter.Layer);
+            ComboBox? currentComboBox = GetCombobox(_filter.Layer);
 
             if (currentComboBox != null)
                 currentComboBox.ItemsSource = filterData;
@@ -126,69 +136,65 @@ namespace InternationalSynchronizer.Components
 
         public void SwapFilters()
         {
-            filter.SaveComboBoxes([SubjectComboBox, PackageComboBox, ThemeComboBox, KnowledgeComboBox]);
-            (filterStorage, filter) = (filter, filterStorage);
+            _filter.SaveComboBoxes([SubjectComboBox, PackageComboBox, ThemeComboBox, KnowledgeComboBox]);
+            (_filterStorage, _filter) = (_filter, _filterStorage);
             LoadComboBoxes();
-
-            previousLayer = filter.GetLayer();
-            FiltereChanged?.Invoke(filter);
+            BackButton.IsEnabled = _filter.Layer != Layer.Subject;
         }
 
         private void LoadComboBoxes()
         {
-            loadingComboBoxes = true;
+            _loadingComboBoxes = true;
             List<ComboBox> comboBoxes = [SubjectComboBox, PackageComboBox, ThemeComboBox, KnowledgeComboBox];
 
             int i = 0;
-            foreach (var itemSource in filter.GetItemSources())
-                if (i != (int)filter.GetLayer())
+            foreach (var itemSource in _filter.GetItemSources())
+                if (i != (int)_filter.Layer)
                     comboBoxes[i++].ItemsSource = itemSource;
 
             i = 0;
-            foreach (var selectedItem in filter.GetSelectedItems())
-                if (i != (int)filter.GetLayer())
+            foreach (var selectedItem in _filter.GetSelectedItems())
+                if (i != (int)_filter.Layer)
                     comboBoxes[i++].SelectedItem = selectedItem;
 
-            loadingComboBoxes = false;
+            _loadingComboBoxes = false;
         }
 
-        private void BackButton_Click(object sender, RoutedEventArgs e)
+        private async void BackButton_Click(object sender, RoutedEventArgs e)
         {
-            if (filter.GetLayer() == Layer.Subject)
+            if (_filter.Layer == Layer.Subject)
                 return;
 
-            BackButton.IsEnabled = false;
+            Layer previousLayer = _filter.Layer;
 
-            previousLayer = filter.GetLayer();
+            _filter.Layer--;
 
-            filter.SetLayer(filter.GetLayer() - 1);
-
-            switch (filter.GetLayer())
+            try
             {
-                case Layer.Subject:
-                    LoadSubjects();
-                    break;
-                case Layer.Package:
-                    FiltereChanged?.Invoke(filter);
-                    BackButton.IsEnabled = true;
-                    break;
-                case Layer.Theme:
-                    FiltereChanged?.Invoke(filter);
-                    BackButton.IsEnabled = true;
-                    break;
-                case Layer.Knowledge:
-                    FiltereChanged?.Invoke(filter);
-                    BackButton.IsEnabled = true;
-                    break;
+                switch (_filter.Layer)
+                {
+                    case Layer.Subject:
+                        await LoadSubjectsAsync();
+                        break;
+                    case Layer.Package:
+                        await FiltereChanged!.Invoke();
+                        break;
+                    case Layer.Theme:
+                        await FiltereChanged!.Invoke();
+                        break;
+                    case Layer.Knowledge:
+                        await FiltereChanged!.Invoke();
+                        break;
+                }
+            }
+            catch (SqlException ex)
+            {
+                _filter.Layer = previousLayer;
+                MessageBox.Show("Skontrolujte internetové pripojenie a skúste znova. Pokiaľ problem pretrváva, kontaktujte Vedenie.\n\nSpráva erroru: " + ex.Message,
+                                "Chyba siete", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
-        public Layer GetLayer() => filter.GetLayer();
-
-        public Filter GetFilter() => filter;
-
-        public (Int32, Int32) GetIdsToSync(int leftRowIndex, int rightRowIndex) => new(filterStorage.GetIdByRow(leftRowIndex), filter.GetIdByRow(rightRowIndex));
-
-        public void SetPreviousLayer() => filter.SetLayer(previousLayer);
+        public (Int32, Int32) GetIdsToSync(int leftRowIndex, int rightRowIndex) => new(_filterStorage.GetIdByRow(leftRowIndex), _filter.GetIdByRow(rightRowIndex));
     }
 }

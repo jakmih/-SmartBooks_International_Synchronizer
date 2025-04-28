@@ -18,7 +18,7 @@
         
         <TextBlock x:Name="Title" Grid.Row="0" FontSize="15" FontWeight="Bold" HorizontalAlignment="Center"/>
 
-        <DataGrid x:Name="DataGrid" Grid.Row="1" IsReadOnly="True" PreviewMouseLeftButtonUp="DataGrid_PreviewMouseLeftButtonUp" CanUserSortColumns="False" LoadingRow="DataGrid_LoadingRow" ScrollViewer.HorizontalScrollBarVisibility="Visible" CanUserResizeRows="False" SelectionMode="Single"/>
+        <DataGrid x:Name="ItemGrid" Grid.Row="1" IsReadOnly="True" LoadingRow="ItemGrid_LoadingRow" PreviewMouseLeftButtonDown="ItemGrid_PreviewMouseLeftButtonDown" MouseMove="ItemGrid_MouseMove" PreviewMouseLeftButtonUp="ItemGrid_PreviewMouseLeftButtonUp" CanUserSortColumns="False" ScrollViewer.HorizontalScrollBarVisibility="Visible" CanUserResizeRows="False" SelectionMode="Single" AutoGenerateColumns="False" HorizontalAlignment="Stretch" SelectionUnit="FullRow"/>
 
         <wv2:WebView2 x:Name="KnowledgePreview" Grid.Row="2"/>
     </Grid>

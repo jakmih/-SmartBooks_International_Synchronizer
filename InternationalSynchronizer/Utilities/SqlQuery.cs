@@ -2,7 +2,7 @@
 {
     public static class SqlQuery
     {
-        private static string GetSELECTQuery(Layer layer)
+        private static string SELECTQuery(Layer layer)
         {
             string query = "SELECT sub.name";
             if (layer == Layer.Subject)
@@ -16,14 +16,10 @@
             if (layer == Layer.Theme)
                 return query + ", thm.id";
 
-            query += ", thm_p.name, tsk.knowledge_text_preview";
-            if (layer == Layer.Knowledge)
-                return query + ", tsk.id";
-
-            return query + ", tsk_t.name, tsk.id";
+            return query + ", thm_p.name, tsk.knowledge_text_preview, tsk_t.name, tsk.id";
         }
 
-        private static string GetFROMQuery(Layer layer)
+        private static string FROMQuery(Layer layer)
         {
             string query = " FROM subject_type AS sub";
             if (layer == Layer.Subject)
@@ -39,14 +35,12 @@
 
             query += " INNER JOIN theme_part AS thm_p ON thm_p.id_theme = thm.id";
             query += " INNER JOIN knowledge AS tsk ON tsk.id_theme_part = thm_p.id";
-            if (layer == Layer.Knowledge)
-                return query;
-
             query += " INNER JOIN knowledge_type AS tsk_t ON tsk_t.id = tsk.id_knowledge_type";
+
             return query;
         }
 
-        private static string GetFilterQuery(Layer layer)
+        private static string FilterQuery(Layer layer)
         {
             string query = " ";
 
@@ -67,11 +61,11 @@
             return query;
         }
 
-        public static string GetItemQuery(Layer layer, Int32 id, bool wholeLayer)
+        public static string ItemQuery(Layer layer, Int32 id, bool wholeLayer = false, bool countChildren = false)
         {
-            string query = GetSELECTQuery(layer) + GetFROMQuery(layer);
+            string query = (countChildren ? "SELECT COUNT(*)" : SELECTQuery(layer)) + FROMQuery(layer);
 
-            string filterQuery = GetFilterQuery(layer);
+            string filterQuery = FilterQuery(layer);
 
             if (layer != Layer.KnowledgeType && !wholeLayer)
                 layer++;
@@ -96,17 +90,17 @@
             return query;
         }
 
-        public static string GetDatabaseIdQuery(string database)
+        public static string DatabaseIdQuery(string database)
         {
             return $"SELECT id FROM sb_database WHERE name = '{database}'";
         }
 
-        public static string GetInsertDatabaseQuery(string database)
+        public static string InsertDatabaseQuery(string database)
         {
             return $"INSERT INTO sb_database (name) VALUES ('{database}')";
         }
 
-        public static string GetSyncPairQuery(Int32 layer, Int32 id, Int32 itemDatabaseId, Int32 pairItemDatabaseId)
+        public static string SyncPairQuery(Int32 layer, Int32 id, Int32 itemDatabaseId, Int32 pairItemDatabaseId)
         {
             return @$"
             SELECT sync_item_1.id_item, sync_item_2.id_item
@@ -129,7 +123,7 @@
                 )";
         }
 
-        public static string GetSyncItemQuery(Int32 layer, Int32 id, Int32 databaseId)
+        public static string SyncItemQuery(Int32 layer, Int32 id, Int32 databaseId)
         {
             return @$"
             SELECT id
@@ -140,17 +134,17 @@
                 AND id_item = {id}";
         }
 
-        public static string GetInsertSyncItemQuery(Int32 layer, Int32 id, Int32 databaseId)
+        public static string InsertSyncItemQuery(Int32 layer, Int32 id, Int32 databaseId)
         {
             return $"INSERT INTO sync_item (id_item_type, id_item, id_database) VALUES ({layer}, {id}, {databaseId})";
         }
 
-        public static string GetInsertSyncPairQuery(Int32 id1, Int32 id2)
+        public static string InsertSyncPairQuery(Int32 id1, Int32 id2)
         {
             return $"INSERT INTO sync_pair (id_sync_item_1, id_sync_item_2) VALUES ({id1}, {id2})";
         }
 
-        public static string GetDeleteSyncPairQuery(Int32 id1, Int32 id2)
+        public static string DeleteSyncPairQuery(Int32 id1, Int32 id2)
         {
             return @$"
             DELETE FROM sync_pair

@@ -1,6 +1,5 @@
 ﻿using Microsoft.Data.SqlClient;
-using System.ComponentModel;
-using System.Diagnostics;
+using System;
 using System.Windows;
 using System.Windows.Controls;
 using static InternationalSynchronizer.Utilities.AppColors;
@@ -9,91 +8,115 @@ namespace InternationalSynchronizer.Components
 {
     public partial class ActionButtons : UserControl
     {
-        public readonly LoadingWindow loadingWindow = new();
+        private readonly LoadingWindow _loadingWindow = new();
+        public LoadingWindow LoadingWindow => _loadingWindow;
+
         public ActionButtons()
         {
             InitializeComponent();
             VisualiseButtons();
         }
 
-        public event Action? AutoSync;
-        public event Action? ConfirmSync;
-        public event Action? ManualSync;
-        public event Action? DeleteSync;
+        public event Func<Task<int>>? AutoSync;
+        public event Func<Task<int>>? ConfirmSync;
+        public event Func<Task>? ManualSync;
+        public event Func<Task>? DeleteSync;
         public event Action? NewDatabases;
 
-        private void AutoSyncButton_Click(object sender, RoutedEventArgs e)
+        private async void AutoSyncButton_Click(object sender, RoutedEventArgs e)
         {
-            loadingWindow.UpdateText("Hľadajú sa nové synchronizácie, prosím čakajte...");
-            loadingWindow.Show();
+            _loadingWindow.UpdateText("Hľadajú sa nové synchronizácie, prosím čakajte...");
+            _loadingWindow.Show();
 
-            try
+            await SafeRunAsync(AutoSyncButtonAsync);
+        }
+
+        private async Task AutoSyncButtonAsync()
+        {
+            int status = await AutoSync!.Invoke();
+            _loadingWindow.Hide();
+            switch (status)
             {
-                AutoSync?.Invoke();
-                loadingWindow.Hide();
-            }
-            catch (SqlException exception)
-            {
-                loadingWindow.Hide();
-                MessageBox.Show("Skontrolujte internetové pripojenie a stlačte 'ok'. Pokiaľ problem pretrváva, kontaktujte Vedenie.\nSpráva erroru: " + exception.Message,
-                                "Chyba siete", MessageBoxButton.OK, MessageBoxImage.Error);
+                case -2:
+                    MessageBox.Show("AI synchronizácia sa nedá použiť na predmety.\nPoužite manuálnu synchronizáciu.",
+                                    "Nemožná AI synchronizácia", MessageBoxButton.OK, MessageBoxImage.Information);
+                    break;
+                case -1:
+                    MessageBox.Show("Na synchronizovanie položiek v danom predmete je potrebné najprv synchronizovať daný predmet.",
+                                    "Synchronizujte predmet", MessageBoxButton.OK, MessageBoxImage.Information);
+                    break;
+                case 0:
+                    MessageBox.Show("Nenašla sa žiadna nová synchronizácia.",
+                                    "Žiadna synchronizácia", MessageBoxButton.OK, MessageBoxImage.Information);
+                    break;
+                default:
+                    break;
             }
         }
 
-        private void ConfirmButton_Click(object sender, RoutedEventArgs e)
+        private async void ConfirmButton_Click(object sender, RoutedEventArgs e)
         {
-            try
+            _loadingWindow.UpdateText("Ukladajú sa zmeny, prosím čakajte...");
+            _loadingWindow.Show();
+
+            await SafeRunAsync(ConfirmButtonAsync);
+        }
+
+        private async Task ConfirmButtonAsync()
+        {
+            int status = await ConfirmSync!.Invoke();
+            _loadingWindow.Hide();
+            switch (status)
             {
-                ConfirmSync?.Invoke();
-                loadingWindow.Hide();
-            }
-            catch (SqlException ex)
-            {
-                loadingWindow.Hide();
-                MessageBox.Show("Skontrolujte internetové pripojenie a stlačte 'ok'. Pokiaľ problem pretrváva, kontaktujte Vedenie.\nSpráva erroru: " + ex.Message,
-                                "Chyba siete", MessageBoxButton.OK, MessageBoxImage.Error);
+                case -4:
+                    MessageBox.Show("Na potvrdenie synchronizácie úlohy musíš označiť 1 položku v pravej tabuľke.",
+                                    "Nevybraná synchronizácia", MessageBoxButton.OK, MessageBoxImage.Information);
+                    break;
+                case -3:
+                    MessageBox.Show("Vybraná položka už je synchronizovaná.\nVyberte položku, ktorá nie je synchronizovaná, alebo jej synchronizáciu zrušte.",
+                                    "Položka už je synchronizovaná", MessageBoxButton.OK, MessageBoxImage.Information);
+                    break;
+                case -2:
+                    MessageBox.Show("Na synchronizovanie položiek musíš označiť 1 položku v ľavej tabuľke a 1 položku v pravej tabuľke.",
+                                    "Nevybrany pár", MessageBoxButton.OK, MessageBoxImage.Information);
+                    break;
+                case -1:
+                    MessageBox.Show("Synchronizovať môžeš iba položky na rovnakej úrovni:\nPredmet-Predmet\nBalíček-Balíček\n...",
+                                    "Nesprávna úroveň", MessageBoxButton.OK, MessageBoxImage.Information);
+                    break;
+                default:
+                    break;
             }
         }
 
-        private void ManualSyncButton_Click(object sender, RoutedEventArgs e)
+        private async void ManualSyncButton_Click(object sender, RoutedEventArgs e)
         {
-            try
-            {
-                ManualSync?.Invoke();
-                loadingWindow.Hide();
-            }
-            catch (SqlException ex)
-            {
-                loadingWindow.Hide();
-                MessageBox.Show("Skontrolujte internetové pripojenie a stlačte 'ok'. Pokiaľ problem pretrváva, kontaktujte Vedenie.\nSpráva erroru: " + ex.Message,
-                                "Chyba siete", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
+            await SafeRunAsync(ManualSync!.Invoke);
         }
 
-        private void DeleteSyncButton_Click(object sender, RoutedEventArgs e)
+        private async void DeleteSyncButton_Click(object sender, RoutedEventArgs e)
         {
-            if (DeleteSync is null)
-            {
-                Debug.WriteLine("DeleteSync is null, you should set it first.");
-                return;
-            }
-
-            try
-            {
-                DeleteSync?.Invoke();
-                loadingWindow.Hide();
-            }
-            catch (SqlException ex)
-            {
-                loadingWindow.Hide();
-                MessageBox.Show("Skontrolujte internetové pripojenie a stlačte 'ok'. Pokiaľ problem pretrváva, kontaktujte Vedenie.\nSpráva erroru: " + ex.Message,
-                                "Chyba siete", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
+            await SafeRunAsync(DeleteSync!.Invoke);
         }
 
         private void ChooseNewDatabasesButton_Click(object sender, RoutedEventArgs e)
         {
-            NewDatabases?.Invoke();
+            NewDatabases!.Invoke();
+        }
+
+        private async Task SafeRunAsync(Func<Task> action)
+        {
+            try
+            {
+                await action();
+                _loadingWindow.Hide();
+            }
+            catch (SqlException exception)
+            {
+                _loadingWindow.Hide();
+                MessageBox.Show("Skontrolujte internetové pripojenie a skúste znova. Pokiaľ problem pretrváva, kontaktujte Vedenie.\n\nSpráva erroru: " + exception.Message,
+                                "Chyba siete", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
 
         public void EnterAutoSyncMode()
@@ -139,12 +162,10 @@ namespace InternationalSynchronizer.Components
 
         public void ReverseButtons()
         {
-            List<UIElement> buttons = Buttons.Children.Cast<UIElement>().ToList();
+            List<UIElement> buttons = [.. Buttons.Children.Cast<UIElement>()];
             Buttons.Children.Clear();
             foreach (UIElement child in buttons.Reverse<UIElement>())
                 Buttons.Children.Add(child);
         }
-
-        private void MainWindow_Closing(object? sender, CancelEventArgs e) => loadingWindow.Close();
     }
 }

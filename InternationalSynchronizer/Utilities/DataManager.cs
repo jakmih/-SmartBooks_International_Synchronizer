@@ -8,33 +8,33 @@ namespace InternationalSynchronizer.Utilities
 {
     public class DataManager
     {
-        private readonly string mainConnectionString;
-        private readonly string secondaryConnectionString;
-        private readonly ItemCache itemCache;
-        private readonly SynchronizationCache synchronizationCache;
-        private readonly Synchronizer synchronizer;
+        private readonly string _mainConnectionString;
+        private readonly string _secondaryConnectionString;
+        private readonly ItemCache _itemCache;
+        private readonly SynchronizationCache _synchronizationCache;
+        private readonly Synchronizer _synchronizer;
 
         public DataManager(string mainDatabase, string secondaryDatabase)
         {
             IConfiguration config = AppSettingsLoader.LoadConfiguration();
-            mainConnectionString = config.GetConnectionString(mainDatabase)!;
-            secondaryConnectionString = config.GetConnectionString(secondaryDatabase)!;
-            itemCache = new(mainConnectionString, secondaryConnectionString);
-            synchronizationCache = new(config.GetConnectionString("Sync")!, mainDatabase, secondaryDatabase);
-            synchronizer = new(this);
+            _mainConnectionString = config.GetConnectionString(mainDatabase)!;
+            _secondaryConnectionString = config.GetConnectionString(secondaryDatabase)!;
+            _itemCache = new(this);
+            _synchronizationCache = new(config.GetConnectionString("Sync")!, mainDatabase, secondaryDatabase);
+            _synchronizer = new(this);
         }
 
         public FullData GetFilterData(Filter filter, Mode mode)
         {
             List<string> filterData = [];
-            MyGridMetadata leftMetadata = new(filter.GetLayer());
-            MyGridMetadata rightMetadata = new(filter.GetLayer(), true);
+            MyGridMetadata leftMetadata = new(filter.Layer);
+            MyGridMetadata rightMetadata = new(filter.Layer, true);
 
             if (mode != Mode.ManualSync)
             {
                 SetDataTable(leftMetadata, filterData, filter.GetUpperLayerId());
                 filter.SetIds(leftMetadata.GetIds());
-                SetSynchonizedDataTable(filter, rightMetadata);
+                SetSynchonizedDataTable(filter, rightMetadata, filter.GetUpperLayerId());
             }
             else
             {
@@ -43,13 +43,15 @@ namespace InternationalSynchronizer.Utilities
                 VisualiseSyncedItems(rightMetadata, filter);
             }
 
-            return new FullData(leftMetadata, rightMetadata, filterData, filter.GetLayer());
+            return new FullData(leftMetadata, rightMetadata, filterData, filter.Layer);
         }
 
         private void SetDataTable(MyGridMetadata metadata, List<string> filterData, Int32 selectedItemId)
         {
-            string connectionString = metadata.IsRightSide() ? secondaryConnectionString : mainConnectionString;
-            string query = GetItemQuery(metadata.GetLayer(), selectedItemId, true);
+            Layer layer = metadata.GetLayer();
+
+            string connectionString = metadata.IsRightSide() ? _secondaryConnectionString : _mainConnectionString;
+            string query = ItemQuery(layer, selectedItemId, true);
 
             using var connection = new SqlConnection(connectionString);
             connection.Open();
@@ -57,31 +59,37 @@ namespace InternationalSynchronizer.Utilities
             using var command = new SqlCommand(query, connection);
             using var reader = command.ExecuteReader();
 
+            var rows = new List<(Int32, List<string>)>();
+
             while (reader.Read())
             {
-                string[] row = ExtractRowData(reader, metadata.IsRightSide());
+                Int32 id = reader.GetInt32(reader.FieldCount - 1);
+                List<string> row = ExtractRowData(reader, metadata.IsRightSide());
 
-                filterData.Add(metadata.IsRightSide() ? row[0] : row[^1]);
-
-                metadata.AddRow(row, NEUTRAL_COLOR, reader.GetInt32(reader.FieldCount - 1));
+                rows.Add((id, row));
             }
-        }
+            reader.Close();
 
-        private void SetSynchonizedDataTable(Filter filter, MyGridMetadata metadata)
-        {
-            foreach (Int32 id in synchronizationCache.GetSynchronizedIds(filter, false))
+            foreach (var (id, row) in rows)
             {
-                string[] row;
-                if (id == -1 || !TryGetRightRow(id, out List<string> rightRow, filter.GetLayer()))
-                    row = [];
-                else
-                    row = [.. rightRow];
+                if (!metadata.IsRightSide() && layer != Layer.Knowledge && layer != Layer.KnowledgeType)
+                {
+                    string syncedChildCount = _itemCache.GetSyncedChildCount(layer, id);
+                    if (syncedChildCount == "" || syncedChildCount[^1] == '?')
+                    {
+                        _itemCache.AddChildCount(layer, id, (-1, TotalChildCount(layer, id, connection)));
+                        syncedChildCount = _itemCache.GetSyncedChildCount(layer, id);
+                    }
 
-                metadata.AddRow(row, NEUTRAL_COLOR, id);
+                    row.Add(syncedChildCount);
+                }
+
+                filterData.Add(metadata.IsRightSide() ? row[0] : row[^2]);
+                metadata.AddRow([.. row], NEUTRAL_COLOR, id);
             }
         }
 
-        private static string[] ExtractRowData(SqlDataReader reader, bool mirrorRowData)
+        private static List<string> ExtractRowData(SqlDataReader reader, bool mirrorRowData)
         {
             List<string> rowData = [];
             for (int i = 0; i < reader.FieldCount - 1; i++)
@@ -90,12 +98,46 @@ namespace InternationalSynchronizer.Utilities
             if (mirrorRowData)
                 rowData.Reverse();
 
-            return [.. rowData];
+            return rowData;
         }
 
-        private bool TryGetRightRow(int id, out List<string> row, Layer layer)
+        private static int TotalChildCount(Layer layer, int id, SqlConnection connection)
         {
-            row = [.. itemCache.GetItem(layer, id)];
+            string query = ItemQuery(layer + 1, id, true, true);
+
+            using var command = new SqlCommand(query, connection);
+            object? result = command.ExecuteScalar();
+
+            if (result == null || result == DBNull.Value)
+                return -1;
+
+            return Convert.ToInt32(result);
+        }
+
+        private void SetSynchonizedDataTable(Filter filter, MyGridMetadata metadata, Int32 selectedItemId)
+        {
+            int syncedItemCount = 0;
+
+            foreach (Int32 id in _synchronizationCache.GetSynchronizedIds(filter, false))
+            {
+                syncedItemCount++;
+                if (id == -1)
+                {
+                    metadata.AddRow([], NEUTRAL_COLOR, id);
+                    syncedItemCount--;
+                }
+                else if (TryGetRightRow(out List<string> rightRow, metadata.GetLayer(), id)){
+                    metadata.AddRow([.. rightRow], NEUTRAL_COLOR, id);}
+                else
+                    metadata.AddRow(["POLOŽKA BOLA ODSTRÁNENÁ - ID: " + id], DELETED_ITEM_COLOR, id);
+            }
+
+            _itemCache.AddChildCount(metadata.GetLayer() - 1, selectedItemId, (syncedItemCount, -1));
+        }
+
+        private bool TryGetRightRow(out List<string> row, Layer layer, int id)
+        {
+            row = [.. _itemCache.GetItem(layer, id)];
 
             if (row.IsNullOrEmpty())
                 return false;
@@ -107,7 +149,7 @@ namespace InternationalSynchronizer.Utilities
         public void VisualiseSyncedItems(MyGridMetadata metadata, Filter filter)
         {
             int index = 0;
-            foreach (Int32 id in synchronizationCache.GetSynchronizedIds(filter, metadata.IsRightSide()))
+            foreach (Int32 id in _synchronizationCache.GetSynchronizedIds(filter, metadata.IsRightSide()))
             {
                 if (id != -1)
                     metadata.SetRowColor(index, SYNCED_COLOR);
@@ -115,31 +157,51 @@ namespace InternationalSynchronizer.Utilities
             }
         }
 
-        public int Synchronize(Filter filter, MyGridMetadata newMetadata, MyGridMetadata leftMetadata) => synchronizer.Synchronize(filter, newMetadata, leftMetadata, itemCache);
+        public int Synchronize(MyGridMetadata leftMetadata, MyGridMetadata rightMetadata, Int32 subjectId) => _synchronizer.Synchronize(leftMetadata, rightMetadata, subjectId);
 
-        public void SaveAISyncChanges(MyGridMetadata leftMetadata, MyGridMetadata rightMetadata, int index = -1)
+        public int SaveAISyncChanges(MyGridMetadata leftMetadata, MyGridMetadata rightMetadata, int index = -1)
         {
             if (index != -1)
-            {
-                SavePair(Layer.KnowledgeType, leftMetadata.GetIdByRow(0), rightMetadata.GetIdByRow(index));
-                return;
-            }
-
-            for (int i = 0; i < rightMetadata.RowCount(); i++)
-                if (rightMetadata.IsRowColor(i, ACCEPT_COLOR))
-                    SavePair(rightMetadata.GetLayer(), leftMetadata.GetIdByRow(i), rightMetadata.GetIdByRow(i));
+                return SavePair(Layer.KnowledgeType, leftMetadata.GetIdByRow(0), rightMetadata.GetIdByRow(index));
+            else
+                return _synchronizationCache.SaveAll(leftMetadata, rightMetadata);
         }
 
-        public void SavePair(Layer layer, Int32 leftId, Int32 rightId)
+        public int SavePair(Layer layer, Int32 leftId, Int32 rightId)
         {
-            synchronizationCache.SetSynchronizedId(layer, leftId, rightId, true);
-            synchronizationCache.SetSynchronizedMirroredId(layer, rightId, leftId);
+            _synchronizationCache.SetSynchronizedId(layer, leftId, rightId, true);
+            _synchronizationCache.SetSynchronizedMirroredId(layer, rightId, leftId);
+            return 1;
         }
 
-        public void DeletePair(Layer layer, Int32 id) => synchronizationCache.DeletePair(layer, id);
+        public int DeletePair(Layer layer, Int32 id)
+        {
+            _synchronizationCache.DeletePair(layer, id);
+            return -1;
+        }
 
-        public Int32 GetSynchronizedId(Layer layer, Int32 itemId, bool secondaryDatabaseSearch = false) => synchronizationCache.GetSynchronizedId(layer, itemId, secondaryDatabaseSearch);
+        public Int32 GetSynchronizedId(Layer layer, Int32 itemId, bool secondaryDatabaseSearch = false) => _synchronizationCache.GetSynchronizedId(layer, itemId, secondaryDatabaseSearch);
 
-        public Int32 GetSecondaryDatabaseId() => synchronizationCache.GetSecondaryDatabaseId();
+        public Int32 GetSecondaryDatabaseId() => _synchronizationCache.GetSecondaryDatabaseId();
+
+        public void AddToSyncedChildCount(Layer layer, Int32 id, int syncedChildCount) => _itemCache.AddToSyncedChildCount(layer, id, syncedChildCount);
+
+        public List<string> GetItem(Layer layer, Int32 id) => _itemCache.GetItem(layer, id);
+
+        public List<string> LoadItem(Layer layer, Int32 id)
+        {
+            using var connection = new SqlConnection(_secondaryConnectionString);
+            connection.Open();
+
+            using var command = new SqlCommand(ItemQuery(layer, id), connection);
+            using var reader = command.ExecuteReader();
+
+            List<string> item = [];
+            if (reader.Read())
+                for (int i = 0; i < reader.FieldCount - 1; i++)
+                    item.Add(reader.IsDBNull(i) ? "" : reader.GetString(i).Replace('\n', ' ').Trim());
+
+            return item;
+        }
     }
 }

@@ -1,5 +1,4 @@
 ﻿using InternationalSynchronizer.Utilities;
-using System.Data;
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
@@ -14,21 +13,14 @@ namespace InternationalSynchronizer.Components
     {
         private bool isRightDataGrid = false;
         private string knowledgePreviewBaseUrl = "";
-        private readonly ScrollViewer scrollViewer;
+        private ScrollViewer? scrollViewer = null;
         private MyGridMetadata metadata = new(Layer.Subject);
+
+        public event Action<int>? SelectionChanged;
+
         public MyDataGrid()
         {
             InitializeComponent();
-            if (DataGrid.Template.FindName("DG_ScrollViewer", DataGrid) is ScrollViewer tmp)
-            {
-                Debug.WriteLine("Found scrollViewer");
-                scrollViewer = tmp;
-            }
-            else
-            {
-                Debug.WriteLine("ScrollViewer not found, creating a new one");
-                scrollViewer = new();
-            }
         }
 
         public void SetKnowledgePreviewBaseUrl(string url) => knowledgePreviewBaseUrl = url;
@@ -37,29 +29,61 @@ namespace InternationalSynchronizer.Components
 
         public void ChangeTitle(string title) => Title.Text = title;
 
-        public event Action<int>? SelectionChanged;
-
-        private void DataGrid_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-        {
-            if (sender is not DataGrid dataGrid || dataGrid.SelectedItem == null)
-                return;
-
-            SelectionChanged!.Invoke(dataGrid.SelectedIndex);
-        }
-
-        private void DataGrid_LoadingRow(object sender, DataGridRowEventArgs e)
+        private void ItemGrid_LoadingRow(object sender, DataGridRowEventArgs e)
         {
             int index = e.Row.GetIndex();
-            if (sender.Equals(DataGrid) && index >= 0 && index < metadata.GetRowColors().Count)
+            if (sender.Equals(ItemGrid) && index >= 0 && index < metadata.GetRowColors().Count)
                 e.Row.Background = metadata.GetRowColor(index);
+        }
+
+        private void ItemGrid_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            HighlightRow(sender, (DependencyObject)e.OriginalSource);
+        }
+
+        private void ItemGrid_MouseMove(object sender, MouseEventArgs e)
+        {
+            var element = e.OriginalSource as DependencyObject;
+
+            while (element != null && element is not DataGridRow)
+                element = VisualTreeHelper.GetParent(element);
+
+            if (element is DataGridRow)
+                ItemGrid.Cursor = Cursors.Hand;
+            else
+                ItemGrid.Cursor = Cursors.Arrow;
+
+            if (e.LeftButton == MouseButtonState.Pressed)
+                HighlightRow(sender, (DependencyObject)e.OriginalSource);
+        }
+
+        private void ItemGrid_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            HighlightRow(sender, (DependencyObject)e.OriginalSource);
+            SelectionChanged?.Invoke(ItemGrid.SelectedIndex);
+        }
+
+        private void HighlightRow(object sender, DependencyObject dep)
+        {
+            if (!sender.Equals(ItemGrid))
+                return;
+
+            while (dep != null && dep is not DataGridRow)
+                dep = VisualTreeHelper.GetParent(dep);
+
+            if (dep is DataGridRow row)
+            {
+                row.IsSelected = true;
+                row.Focus();
+            }
         }
 
         public void UpdateMetadata(MyGridMetadata newMetadata) => metadata = new(newMetadata);
 
-        public void VisualizeDataGrid()
+        public void VisualizeGrid(bool autoSync = false)
         {
-            DataGrid.ItemsSource = metadata.GetDataTable().DefaultView;
-            DataGrid.Items.Refresh();
+            ItemGrid.Columns.Clear();
+            ItemGrid.ItemsSource = metadata.GetDataTable().DefaultView;
 
             if (metadata.GetLayer() != Layer.KnowledgeType)
             {
@@ -67,26 +91,22 @@ namespace InternationalSynchronizer.Components
                 knowledgePreviewRow.Height = new GridLength(0);
             }
             else
-                HandleKnowledgePreviews(metadata.GetIdByRow(0));
-
-            DataGrid.Columns.Clear();
-            int columnCount = 0;
-            foreach (DataColumn column in metadata.GetDataTable().Columns)
+                HandleKnowledgePreviews(autoSync ? -1 : metadata.GetIdByRow(0));
+            
+            var columns = metadata.GetDataTable().Columns;
+            for (int i = 0; i < columns.Count; i++)
             {
-                columnCount++;
                 DataGridTextColumn textColumn = new()
                 {
-                    Header = column.ColumnName,
-                    Binding = new Binding(column.ColumnName),
-                    Width = (columnCount == metadata.ColumnCount())
-                            ? new DataGridLength(1, DataGridLengthUnitType.Star)
-                            : DataGridLength.Auto
+                    Header = columns[i].ColumnName,
+                    Binding = new Binding(columns[i].ColumnName),
+                    Width = DataGridLength.Auto
                 };
-                DataGrid.Columns.Add(textColumn);
+                ItemGrid.Columns.Add(textColumn);
             }
-
-            if (DataGrid.Items.Count > 0)
-                DataGrid.ScrollIntoView(DataGrid.Items[0], DataGrid.Columns[isRightDataGrid ? 0 : ^1]);
+            
+            if (ItemGrid.Items.Count > 0)
+                ItemGrid.ScrollIntoView(ItemGrid.Items[0], ItemGrid.Columns[isRightDataGrid ? 0 : ^1]);
         }
 
         public void HandleKnowledgePreviews(Int32 knowledgeId)
@@ -107,7 +127,7 @@ namespace InternationalSynchronizer.Components
 
             metadata.SetRowColor(index, color);
 
-            if (DataGrid.ItemContainerGenerator.ContainerFromIndex(index) is DataGridRow row)
+            if (ItemGrid.ItemContainerGenerator.ContainerFromIndex(index) is DataGridRow row)
                 row.Background = color;
         }
 
@@ -116,26 +136,32 @@ namespace InternationalSynchronizer.Components
             if (isRightDataGrid)
             {
                 UpdateMetadata(newMetadata);
-                VisualizeDataGrid();
+                VisualizeGrid(true);
                 return;
             }
 
             for (int rowIndex = 0; rowIndex < metadata.RowCount() && rowIndex < newMetadata.RowCount(); rowIndex++)
                 if (newMetadata.IsRowColor(rowIndex, ACCEPT_COLOR))
-                    newMetadata.SetRowColor(rowIndex, ACCEPT_COLOR);
-
-            DataGrid.UpdateLayout();
+                {
+                    metadata.SetRowColor(rowIndex, ACCEPT_COLOR);
+                    if (ItemGrid.ItemContainerGenerator.ContainerFromIndex(rowIndex) is DataGridRow row)
+                        row.Background = ACCEPT_COLOR;
+                }
         }
 
-        public void ClearAISync()
+        public void ClearAISync(bool delete = false)
         {
             for (int rowIndex = 0; rowIndex < metadata.RowCount(); rowIndex++)
             {
-                if (!metadata.IsRowColor(rowIndex, NEUTRAL_COLOR))
+                if (metadata.IsRowColor(rowIndex, ACCEPT_COLOR) || metadata.IsRowColor(rowIndex, DECLINE_COLOR))
                 {
-                    metadata.SetRowColor(rowIndex, NEUTRAL_COLOR);
-                    if (isRightDataGrid)
+                    if (delete || (isRightDataGrid && metadata.IsRowColor(rowIndex, DECLINE_COLOR)))
                         metadata.ClearRowData(rowIndex);
+
+                    metadata.SetRowColor(rowIndex, NEUTRAL_COLOR);
+
+                    if (ItemGrid.ItemContainerGenerator.ContainerFromIndex(rowIndex) is DataGridRow row)
+                        row.Background = NEUTRAL_COLOR;
                 }
             }
         }
@@ -145,7 +171,7 @@ namespace InternationalSynchronizer.Components
             if (row < 0 || row >= metadata.RowCount())
                 return;
 
-            DataGridRow dataGridRow = (DataGridRow)DataGrid.ItemContainerGenerator.ContainerFromIndex(row);
+            DataGridRow dataGridRow = (DataGridRow)ItemGrid.ItemContainerGenerator.ContainerFromIndex(row);
 
             if (dataGridRow.Background == ACCEPT_COLOR || dataGridRow.Background == DECLINE_COLOR)
             {
@@ -154,32 +180,28 @@ namespace InternationalSynchronizer.Components
                 metadata.SetRowColor(row, newColor);
             }
 
-            DataGrid.SelectedIndex = -1;
+            ItemGrid.SelectedIndex = -1;
         }
 
-        public int GetSelectedIndex() => DataGrid.SelectedIndex;
+        public int GetSelectedIndex() => ItemGrid.SelectedIndex;
 
-        public void SetSelectedIndex(int index) => DataGrid.SelectedIndex = index;
+        public void SetSelectedIndex(int index) => ItemGrid.SelectedIndex = index;
 
         public bool IsRowColor(int index, SolidColorBrush color) => metadata.IsRowColor(index, color);
 
         public MyGridMetadata GetMetadata() => metadata;
 
-        public ScrollViewer GetScrollViewer() => scrollViewer;
-        //public ScrollViewer? GetScrollViewer()
-        //{
+        public ScrollViewer GetScrollViewer()
+        {
+            if (scrollViewer != null)
+                return scrollViewer;
 
-        //    if (grid is ScrollViewer viewer)
-        //        return viewer;
+            if (ItemGrid.Template.FindName("DG_ScrollViewer", ItemGrid) is ScrollViewer tmp)
+                scrollViewer = tmp;
+            else
+                return new();
 
-        //    for (int i = 0; i < VisualTreeHelper.GetChildrenCount(grid); i++)
-        //    {
-        //        var child = VisualTreeHelper.GetChild(grid, i);
-        //        var result = GetScrollViewer(child);
-        //        if (result != null) return result;
-        //    }
-
-        //    return null;
-        //}
+            return scrollViewer;
+        }
     }
 }

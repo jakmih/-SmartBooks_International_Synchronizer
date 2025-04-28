@@ -1,58 +1,80 @@
 ﻿using Microsoft.Data.SqlClient;
+using System.Diagnostics;
 using static InternationalSynchronizer.Utilities.SqlQuery;
 
 namespace InternationalSynchronizer.Utilities
 {
     public class ItemCache
     {
-        private Dictionary<Layer, Dictionary<Int32, List<string>>> cache = [];
-        private Dictionary<Layer, Dictionary<Int32, List<string>>> switchCache = [];
-        private string connectionString;
-        private string switchConnectionString;
+        private readonly Dictionary<Layer, Dictionary<Int32, List<string>>> _itemCache = [];
+        private readonly Dictionary<Layer, Dictionary<Int32, (int synced, int total)>> _syncedChildCountCache = [];
+        private readonly DataManager _dataManager;
 
-
-        public ItemCache(string mainConnectionString, string secondaryConnectionString)
+        public ItemCache(DataManager dataManager)
         {
-            cache.Add(Layer.Subject, []);
-            cache.Add(Layer.Package, []);
-            cache.Add(Layer.Theme, []);
-            cache.Add(Layer.Knowledge, []);
-            cache.Add(Layer.KnowledgeType, []);
-            switchCache.Add(Layer.Subject, []);
-            switchCache.Add(Layer.Package, []);
-            switchCache.Add(Layer.Theme, []);
-            switchCache.Add(Layer.Knowledge, []);
-            switchCache.Add(Layer.KnowledgeType, []);
-            connectionString = secondaryConnectionString;
-            switchConnectionString = mainConnectionString;
+
+            foreach (Layer layer in Enum.GetValues(typeof(Layer)))
+            {
+                _itemCache.Add(layer, []);
+                _syncedChildCountCache.Add(layer, []);
+            }
+            _dataManager = dataManager;
         }
 
         public List<string> GetItem(Layer layer, Int32 id)
         {
-            return cache[layer].TryGetValue(id, out List<string>? value) ? value : LoadItem(layer, id);
-        }
+            if (_itemCache[layer].TryGetValue(id, out List<string>? value))
+                return value;
 
-        private List<string> LoadItem(Layer layer, Int32 id)
-        {
-            using var connection = new SqlConnection(connectionString);
-            connection.Open();
-            using var command = new SqlCommand(GetItemQuery(layer, id, false), connection);
-            using var reader = command.ExecuteReader();
-
-            List<string> item = [];
-            if (reader.Read())
-                for (int i = 0; i < reader.FieldCount - 1; i++)
-                    item.Add(reader.IsDBNull(i) ? "" : reader.GetString(i).Replace('\n', ' ').Trim());
-
-            reader.Close();
-            cache[layer].Add(id, item);
+            List<string> item = _dataManager.LoadItem(layer, id);
+            _itemCache[layer].Add(id, item);
             return item;
         }
 
-        public void Switch()
+        public void AddChildCount(Layer layer, Int32 id, (int synced, int total) newChildCount)
         {
-            (cache, switchCache) = (switchCache, cache);
-            (connectionString, switchConnectionString) = (switchConnectionString, connectionString);
+            if (layer != Layer.Subject && layer != Layer.Package && layer != Layer.Theme)
+                return;
+
+            if (_syncedChildCountCache[layer].TryGetValue(id, out var childCount))
+            {
+                if (childCount.synced == -1)
+                    childCount.synced = newChildCount.synced;
+
+                if (childCount.total == -1)
+                    childCount.total = newChildCount.total;
+
+                _syncedChildCountCache[layer][id] = childCount;
+            }
+            else
+                _syncedChildCountCache[layer].Add(id, newChildCount);
+        }
+
+        public void AddToSyncedChildCount(Layer layer, Int32 id, int syncedChildCount)
+        {
+            Debug.WriteLine($"AddToSyncedChildCount: {layer} {id} {syncedChildCount}");
+            if (layer != Layer.Subject && layer != Layer.Package && layer != Layer.Theme)
+                return;
+            Debug.WriteLine("DONE");
+
+            if (_syncedChildCountCache[layer].TryGetValue(id, out var childCount))
+            {
+                childCount.synced += syncedChildCount;
+                _syncedChildCountCache[layer][id] = childCount;
+            }
+            else
+                AddChildCount(layer, id, (syncedChildCount, -1));
+        }
+
+        public string GetSyncedChildCount(Layer layer, Int32 id)
+        {
+            if ((layer != Layer.Subject && layer != Layer.Package && layer != Layer.Theme)
+                || !_syncedChildCountCache[layer].TryGetValue(id, out var childCount))
+                return "";
+
+            string syncedText = childCount.synced == -1 ? "?" : childCount.synced.ToString();
+            string totalText = childCount.total == -1 ? "?" : childCount.total.ToString();
+            return $"{syncedText}/{totalText}";
         }
     }
 }

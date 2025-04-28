@@ -1,5 +1,7 @@
 ﻿using Microsoft.Data.SqlClient;
+using System.Data;
 using static InternationalSynchronizer.Utilities.SqlQuery;
+using static InternationalSynchronizer.Utilities.AppColors;
 
 namespace InternationalSynchronizer.Utilities
 {
@@ -13,14 +15,11 @@ namespace InternationalSynchronizer.Utilities
 
         public SynchronizationCache(string syncConnectionString, string mainDatabase, string secondaryDatabase)
         {
-            cache.Add(Layer.Subject, []);
-            cache.Add(Layer.Package, []);
-            cache.Add(Layer.Theme, []);
-            cache.Add(Layer.Knowledge, []);
-            mirrorCache.Add(Layer.Subject, []);
-            mirrorCache.Add(Layer.Package, []);
-            mirrorCache.Add(Layer.Theme, []);
-            mirrorCache.Add(Layer.Knowledge, []);
+            foreach (Layer layer in Enum.GetValues(typeof(Layer)))
+            {
+                cache.Add(layer, []);
+                mirrorCache.Add(layer, []);
+            }
             synchronizationConnectionString = syncConnectionString;
             mainDatabaseId = GetDatabaseId(mainDatabase);
             secondaryDatabaseId = GetDatabaseId(secondaryDatabase);
@@ -30,7 +29,7 @@ namespace InternationalSynchronizer.Utilities
         {
             using var connection = new SqlConnection(synchronizationConnectionString);
             connection.Open();
-            using var command = new SqlCommand(GetDatabaseIdQuery(database), connection);
+            using var command = new SqlCommand(DatabaseIdQuery(database), connection);
             using var reader = command.ExecuteReader();
 
             if (reader.Read())
@@ -42,7 +41,7 @@ namespace InternationalSynchronizer.Utilities
 
         private static Int32 CreateDatabase(string database, SqlConnection connection)
         {
-            using var command = new SqlCommand(GetInsertDatabaseQuery(database), connection);
+            using var command = new SqlCommand(InsertDatabaseQuery(database), connection);
             command.ExecuteNonQuery();
 
             using var idCommand = new SqlCommand("SELECT SCOPE_IDENTITY()", connection);
@@ -56,7 +55,7 @@ namespace InternationalSynchronizer.Utilities
             connection.Open();
 
             foreach (Int32 id in filter.GetIds())
-                synchronizedIds.Add(GetSynchronizedId(filter.GetLayer(), id, secondaryDatabaseSearch, connection));
+                synchronizedIds.Add(GetSynchronizedId(filter.Layer, id, secondaryDatabaseSearch, connection));
 
             return synchronizedIds;
         }
@@ -74,27 +73,38 @@ namespace InternationalSynchronizer.Utilities
 
         private Int32 LoadSynchronizedId(Layer layer, Int32 id, bool secondaryDatabaseSearch, SqlConnection? connection)
         {
-            string query;
-            if (secondaryDatabaseSearch)
-                query = GetSyncPairQuery((Int32)layer, id, secondaryDatabaseId, mainDatabaseId);
-            else
-                query = GetSyncPairQuery((Int32)layer, id, mainDatabaseId, secondaryDatabaseId);
+            string query = secondaryDatabaseSearch
+                         ? SyncPairQuery((Int32)layer, id, secondaryDatabaseId, mainDatabaseId)
+                         : SyncPairQuery((Int32)layer, id, mainDatabaseId, secondaryDatabaseId);
 
-            if (connection == null)
+            if (connection != null)
             {
-                connection = new SqlConnection(synchronizationConnectionString);
-                connection.Open();
-            }
-            using var command = new SqlCommand(query, connection);
-            using var reader = command.ExecuteReader();
+                using var command = new SqlCommand(query, connection);
+                using var reader = command.ExecuteReader();
 
+                return ReadAndSetSyncIds(layer, id, reader, secondaryDatabaseSearch);
+            }
+            else
+            {
+                using var newConnection = new SqlConnection(synchronizationConnectionString);
+                newConnection.Open();
+
+                using var command = new SqlCommand(query, newConnection);
+                using var reader = command.ExecuteReader();
+
+                return ReadAndSetSyncIds(layer, id, reader, secondaryDatabaseSearch);
+            }
+        }
+
+        private Int32 ReadAndSetSyncIds(Layer layer, Int32 id, SqlDataReader reader, bool secondaryDatabaseSearch)
+        {
             if (reader.Read())
             {
                 Int32 keyId = reader.GetInt32(0) == id ? reader.GetInt32(0) : reader.GetInt32(1);
                 Int32 valueId = reader.GetInt32(1) == id ? reader.GetInt32(0) : reader.GetInt32(1);
+
                 SetSynchronizedId(layer, keyId, valueId);
                 SetSynchronizedMirroredId(layer, valueId, keyId);
-                reader.Close();
                 return valueId;
             }
 
@@ -104,6 +114,47 @@ namespace InternationalSynchronizer.Utilities
                 SetSynchronizedId(layer, id, -1);
 
             return -1;
+        }
+
+        public int SaveAll(MyGridMetadata leftMetadata, MyGridMetadata rightMetadata)
+        {
+            var pairsToInsert = new DataTable();
+            pairsToInsert.Columns.Add("id_sync_item_1", typeof(int));
+            pairsToInsert.Columns.Add("id_sync_item_2", typeof(int));
+
+            using var connection = new SqlConnection(synchronizationConnectionString);
+            connection.Open();
+
+            for (int i = 0; i < leftMetadata.RowCount(); i++)
+            {
+                if (rightMetadata.IsRowColor(i, ACCEPT_COLOR))
+                {
+                    int leftId = leftMetadata.GetIdByRow(i);
+                    int rightId = rightMetadata.GetIdByRow(i);
+
+                    if (leftId == -1 || rightId == -1)
+                        continue;
+
+                    Layer layer = leftMetadata.GetLayer() == Layer.KnowledgeType ? Layer.Knowledge : leftMetadata.GetLayer();
+                    if (!cache[layer].TryAdd(leftId, rightId))
+                        cache[layer][leftId] = rightId;
+
+                    SetSynchronizedMirroredId(layer, rightId, leftId);
+
+                    int leftSyncItemId = GetOrCreateSyncItem(connection, leftId, layer, mainDatabaseId);
+                    int rightSyncItemId = GetOrCreateSyncItem(connection, rightId, layer, secondaryDatabaseId);
+
+                    pairsToInsert.Rows.Add(leftSyncItemId, rightSyncItemId);
+                }
+            }
+
+            using var bulkCopy = new SqlBulkCopy(synchronizationConnectionString, SqlBulkCopyOptions.KeepIdentity) { DestinationTableName = "sync_pair" };
+            bulkCopy.ColumnMappings.Add("id_sync_item_1", "id_sync_item_1");
+            bulkCopy.ColumnMappings.Add("id_sync_item_2", "id_sync_item_2");
+
+            bulkCopy.WriteToServer(pairsToInsert);
+
+            return pairsToInsert.Rows.Count;
         }
 
         public void SetSynchronizedId(Layer layer, Int32 keyId, Int32 valueId, bool addToDatabase = false)
@@ -125,15 +176,13 @@ namespace InternationalSynchronizer.Utilities
 
             try
             {
-                using var command = new SqlCommand(GetInsertSyncPairQuery(syncItemId1, syncItemId2), connection);
+                using var command = new SqlCommand(InsertSyncPairQuery(syncItemId1, syncItemId2), connection);
                 int tmp = command.ExecuteNonQuery();
             }
-            catch (SqlException e)
+            catch (SqlException)
             {
-                if (!(e.Message.Contains("PRIMARY KEY constraint") ||
-                    e.Message.Contains("FOREIGN KEY constraint") ||
-                    e.Message.Contains("Violation of UNIQUE KEY constraint")))
-                    throw;
+                cache[layer][keyId] = -1;
+                throw;
             }
         }
 
@@ -151,7 +200,7 @@ namespace InternationalSynchronizer.Utilities
             if (layer == Layer.KnowledgeType)
                 layer = Layer.Knowledge;
 
-            string query = GetSyncItemQuery((Int32)layer, id, databaseId);
+            string query = SyncItemQuery((Int32)layer, id, databaseId);
             using var command = new SqlCommand(query, connection);
             using var reader = command.ExecuteReader();
 
@@ -163,7 +212,7 @@ namespace InternationalSynchronizer.Utilities
             }
 
             reader.Close();
-            query = GetInsertSyncItemQuery((Int32)layer, id, databaseId);
+            query = InsertSyncItemQuery((Int32)layer, id, databaseId);
             using var insertCommand = new SqlCommand(query, connection);
             insertCommand.ExecuteNonQuery();
 
@@ -180,17 +229,17 @@ namespace InternationalSynchronizer.Utilities
             if ((pairItemId = GetSynchronizedId(layer, id)) == -1)
                 return;
 
-            mirrorCache[layer].Remove(cache[layer].GetValueOrDefault(id));
-            cache[layer].Remove(id);
-
             using var connection = new SqlConnection(synchronizationConnectionString);
             connection.Open();
 
             Int32 id1 = GetOrCreateSyncItem(connection, id, layer, mainDatabaseId);
             Int32 id2 = GetOrCreateSyncItem(connection, pairItemId, layer, secondaryDatabaseId);
 
-            using var command = new SqlCommand(GetDeleteSyncPairQuery(id1, id2), connection);
+            using var command = new SqlCommand(DeleteSyncPairQuery(id1, id2), connection);
             command.ExecuteNonQuery();
+
+            mirrorCache[layer].Remove(cache[layer].GetValueOrDefault(id));
+            cache[layer].Remove(id);
         }
 
         public Int32 GetSecondaryDatabaseId() => secondaryDatabaseId;

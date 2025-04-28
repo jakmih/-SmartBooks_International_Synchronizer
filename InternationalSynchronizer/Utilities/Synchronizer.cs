@@ -16,21 +16,21 @@ namespace InternationalSynchronizer.Utilities
         private static readonly string indexName = "sb-final";
         private readonly DataManager dataManager = dataManager;
 
-        public int Synchronize(Filter filter, MyGridMetadata leftMetadata, MyGridMetadata rightMetadata, ItemCache itemCache)
+        public int Synchronize(MyGridMetadata leftMetadata, MyGridMetadata rightMetadata, Int32 subjectId)
         {
-            Int32 synchronizedSubjectId = dataManager.GetSynchronizedId(Layer.Subject, filter.GetSubjectId());
+            Int32 synchronizedSubjectId = dataManager.GetSynchronizedId(Layer.Subject, subjectId);
             if (synchronizedSubjectId == -1)
                 return -1;
 
-            MyGridMetadata newMetadata = new(rightMetadata.GetLayer(), true);
-            Layer layer = filter.GetLayer();
+            Layer layer = leftMetadata.GetLayer();
+            MyGridMetadata newMetadata = new(layer, true);
 
             if (layer == Layer.KnowledgeType)
             {
                 if (rightMetadata.GetIdByRow(0) != -1)
                     return 0;
 
-                int tmp = SynchronizeRow(synchronizedSubjectId, newMetadata, leftMetadata.GetRowData(0), itemCache);
+                int tmp = SynchronizeRow(synchronizedSubjectId, newMetadata, leftMetadata.GetRowData(0)[^2]);
                 if (tmp != 0)
                     rightMetadata.CopyMetadata(newMetadata);
 
@@ -38,23 +38,21 @@ namespace InternationalSynchronizer.Utilities
             }
             int newRowCount = 0;
 
-            for (int i = 0; i < leftMetadata.RowCount(); i++)
+            for (int i = 0; i < leftMetadata.RowCount(); i++){
                 if (rightMetadata.GetIdByRow(i) == -1)
-                    newRowCount += SynchronizeRow(synchronizedSubjectId, newMetadata, leftMetadata.GetRowData(i), itemCache);
+                    newRowCount += SynchronizeRow(synchronizedSubjectId, newMetadata, leftMetadata.GetRowData(i)[^2]);
                 else
                     newMetadata.AddRow(rightMetadata.GetRowData(i), rightMetadata.GetRowColor(i), rightMetadata.GetIdByRow(i));
-
+}
             if (newRowCount != 0)
-                    rightMetadata.CopyMetadata(newMetadata);
+                rightMetadata.CopyMetadata(newMetadata);
 
             return newRowCount;
         }
 
-        private int SynchronizeRow(Int32 synchronizedSubjectId, MyGridMetadata newMetadata, string[] row, ItemCache itemCache)
+        private int SynchronizeRow(Int32 synchronizedSubjectId, MyGridMetadata newMetadata, string name)
         {
             Layer layer = newMetadata.GetLayer();
-
-            string name = row[^(layer == Layer.KnowledgeType ? 2 : 1)].ToString() ?? "";
 
             Int32 secondaryDatabaseId = dataManager.GetSecondaryDatabaseId();
 
@@ -65,8 +63,8 @@ namespace InternationalSynchronizer.Utilities
                 if (!newMetadata.GetIds().Contains(id) && dataManager.GetSynchronizedId(layer, id, true) == -1)
                 {
                     if (layer == Layer.KnowledgeType)
-                        choiceCount += UpdateRow(id, newMetadata, itemCache);
-                    else if (UpdateRow(id, newMetadata, itemCache) != 0)
+                        choiceCount += UpdateRow(id, newMetadata);
+                    else if (UpdateRow(id, newMetadata) != 0)
                         return 1;
                 }
 
@@ -76,9 +74,9 @@ namespace InternationalSynchronizer.Utilities
             return choiceCount;
         }
 
-        private static int UpdateRow(Int32 id, MyGridMetadata newMetadata, ItemCache itemCache)
+        private int UpdateRow(Int32 id, MyGridMetadata newMetadata)
         {
-            List<string> newRow = [.. itemCache.GetItem(newMetadata.GetLayer(), id)];
+            List<string> newRow = [.. dataManager.GetItem(newMetadata.GetLayer(), id)];
             if (newRow.IsNullOrEmpty())
                 return 0;
 
@@ -89,7 +87,6 @@ namespace InternationalSynchronizer.Utilities
 
         private static string CreateJsonQuery(Int32 databaseId, Int32 subjectId, Int32 itemTypeId, string name)
         {
-            name = JsonConvert.SerializeObject(name);
             return $@"
             {{
                 ""select"": ""id_item"",
@@ -98,7 +95,7 @@ namespace InternationalSynchronizer.Utilities
                 ""vectorQueries"": [
                     {{
                         ""kind"": ""text"",
-                        ""text"": {name},
+                        ""text"": {JsonConvert.SerializeObject(name)},
                         ""fields"": ""text_vector""
                     }}
                 ]
@@ -119,7 +116,6 @@ namespace InternationalSynchronizer.Utilities
             {
                 HttpResponseMessage response = client.PostAsync(url, content).GetAwaiter().GetResult();
                 SearchResponse? searchResponse = response.Content.ReadFromJsonAsync<SearchResponse>().GetAwaiter().GetResult();
-                Debug.WriteLine($"Response: {response.Content}");
                 if (searchResponse?.Value != null)
                     foreach (var item in searchResponse.Value)
                         ids.Add(item.IdItem);

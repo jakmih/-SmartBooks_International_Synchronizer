@@ -26,8 +26,9 @@ namespace InternationalSynchronizer.UpdateVectorItemTable
             using var transaction = connection.BeginTransaction();
             try
             {
-                using var deleteCommand = new SqlCommand(ClearVectorItemTable(), connection, transaction);
-                deleteCommand.ExecuteNonQuery();
+                using var truncateCommand = new SqlCommand(ClearVectorItemTable(), connection, transaction);
+                truncateCommand.CommandTimeout = 600;
+                truncateCommand.ExecuteNonQuery();
 
                 int updated = 0;
                 foreach (string database in databases.Keys)
@@ -52,7 +53,7 @@ namespace InternationalSynchronizer.UpdateVectorItemTable
 
         private static int GetDatabaseId(string database, SqlConnection connection, SqlTransaction transaction)
         {
-            using var command = new SqlCommand(GetDatabaseIdQuery(database), connection, transaction);
+            using var command = new SqlCommand(DatabaseIdQuery(database), connection, transaction);
             using var reader = command.ExecuteReader();
 
             if (reader.Read())
@@ -64,7 +65,7 @@ namespace InternationalSynchronizer.UpdateVectorItemTable
 
         private static int CreateDatabase(string database, SqlConnection connection)
         {
-            using var command = new SqlCommand(GetInsertDatabaseQuery(database), connection);
+            using var command = new SqlCommand(InsertDatabaseQuery(database), connection);
             command.ExecuteNonQuery();
 
             using var idCommand = new SqlCommand("SELECT SCOPE_IDENTITY()", connection);
@@ -145,7 +146,7 @@ namespace InternationalSynchronizer.UpdateVectorItemTable
             using var connection = new SqlConnection(connectionString);
             connection.Open();
 
-            using var command = new SqlCommand(GetAllKnowledgesQuery(), connection);
+            using var command = new SqlCommand(AllKnowledgesQuery(), connection);
             using var reader = command.ExecuteReader();
 
             List<Subject> subjects = [];
