@@ -14,21 +14,28 @@ namespace InternationalSynchronizer.Utilities
         private readonly SynchronizationCache _synchronizationCache;
         private readonly Synchronizer _synchronizer;
 
-        public DataManager(string mainDatabase, string secondaryDatabase)
+        private DataManager(string mainDatabase, string secondaryDatabase)
         {
             IConfiguration config = AppSettingsLoader.LoadConfiguration();
             _mainConnectionString = config.GetConnectionString(mainDatabase)!;
             _secondaryConnectionString = config.GetConnectionString(secondaryDatabase)!;
             _itemCache = new(this);
-            _synchronizationCache = new(config.GetConnectionString("Sync")!, mainDatabase, secondaryDatabase);
+            _synchronizationCache = new(config.GetConnectionString("Sync")!);
             _synchronizer = new(this);
+        }
+
+        public static async Task<DataManager> CreateAsync(string mainDatabase, string secondaryDatabase)
+        {
+            var manager = new DataManager(mainDatabase, secondaryDatabase);
+            await manager._synchronizationCache.InitializeAsync(mainDatabase, secondaryDatabase);
+            return manager;
         }
 
         public FullData GetFilterData(Filter filter, Mode mode)
         {
             List<string> filterData = [];
-            MyGridMetadata leftMetadata = new(filter.Layer);
-            MyGridMetadata rightMetadata = new(filter.Layer, true);
+            MyGridMetadata leftMetadata = new(filter.Layer, filter.GetUpperLayerId());
+            MyGridMetadata rightMetadata = new(filter.Layer, -1, true);
 
             if (mode != Mode.ManualSync)
             {
@@ -59,18 +66,21 @@ namespace InternationalSynchronizer.Utilities
             using var command = new SqlCommand(query, connection);
             using var reader = command.ExecuteReader();
 
-            var rows = new List<(Int32, List<string>)>();
+            var rows = new List<(Int32, List<string>, Int32)>();
 
             while (reader.Read())
             {
                 Int32 id = reader.GetInt32(reader.FieldCount - 1);
                 List<string> row = ExtractRowData(reader, metadata.IsRightSide());
+                Int32 knowledgeTypeId = (layer == Layer.Knowledge || layer == Layer.KnowledgeType)
+                                      ? reader.GetInt32(reader.FieldCount - 2)
+                                      : -1;
 
-                rows.Add((id, row));
+                rows.Add((id, row, knowledgeTypeId));
             }
             reader.Close();
 
-            foreach (var (id, row) in rows)
+            foreach (var (id, row, knowledgeTypeId) in rows)
             {
                 if (!metadata.IsRightSide() && layer != Layer.Knowledge && layer != Layer.KnowledgeType)
                 {
@@ -85,14 +95,14 @@ namespace InternationalSynchronizer.Utilities
                 }
 
                 filterData.Add(metadata.IsRightSide() ? row[0] : row[^2]);
-                metadata.AddRow([.. row], NEUTRAL_COLOR, id);
+                metadata.AddRow([.. row], NEUTRAL_COLOR, id, knowledgeTypeId);
             }
         }
 
         private static List<string> ExtractRowData(SqlDataReader reader, bool mirrorRowData)
         {
             List<string> rowData = [];
-            for (int i = 0; i < reader.FieldCount - 1; i++)
+            for (int i = 0; i < reader.FieldCount - 2; i++)
                 rowData.Add(reader.IsDBNull(i) ? "" : reader.GetString(i).Replace('\n', ' ').Trim());
 
             if (mirrorRowData)
@@ -198,7 +208,7 @@ namespace InternationalSynchronizer.Utilities
 
             List<string> item = [];
             if (reader.Read())
-                for (int i = 0; i < reader.FieldCount - 1; i++)
+                for (int i = 0; i < reader.FieldCount - 2; i++)
                     item.Add(reader.IsDBNull(i) ? "" : reader.GetString(i).Replace('\n', ' ').Trim());
 
             return item;

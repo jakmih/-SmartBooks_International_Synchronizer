@@ -6,17 +6,17 @@
         {
             string query = "SELECT sub.name";
             if (layer == Layer.Subject)
-                return query + ", sub.id";
+                return query + ", sub.id, sub.id";
 
             query += ", pac.name + ' - ' + pac.description";
             if (layer == Layer.Package)
-                return query + ", pac.id";
+                return query + ", pac.id, pac.id";
 
             query += ", thm.name";
             if (layer == Layer.Theme)
-                return query + ", thm.id";
+                return query + ", thm.id, thm.id";
 
-            return query + ", thm_p.name, tsk.knowledge_text_preview, tsk_t.name, tsk.id";
+            return query + ", thm_p.name, tsk.knowledge_text_preview, tsk_t.name, tsk_t.id, tsk.id";
         }
 
         private static string FROMQuery(Layer layer)

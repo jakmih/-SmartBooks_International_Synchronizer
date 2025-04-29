@@ -11,10 +11,10 @@ namespace InternationalSynchronizer.Components
 {
     public partial class MyDataGrid : UserControl
     {
-        private bool isRightDataGrid = false;
-        private string knowledgePreviewBaseUrl = "";
-        private ScrollViewer? scrollViewer = null;
-        private MyGridMetadata metadata = new(Layer.Subject);
+        private bool _isRightDataGrid = false;
+        private string _knowledgePreviewBaseUrl = "";
+        private ScrollViewer? _scrollViewer = null;
+        private MyGridMetadata _metadata = new(Layer.Subject, -1);
 
         public event Action<int>? SelectionChanged;
 
@@ -23,17 +23,17 @@ namespace InternationalSynchronizer.Components
             InitializeComponent();
         }
 
-        public void SetKnowledgePreviewBaseUrl(string url) => knowledgePreviewBaseUrl = url;
+        public void SetKnowledgePreviewBaseUrl(string url) => _knowledgePreviewBaseUrl = url;
 
-        public void IsRightDataGrid(bool isRight) => isRightDataGrid = isRight;
+        public void IsRightDataGrid(bool isRight) => _isRightDataGrid = isRight;
 
         public void ChangeTitle(string title) => Title.Text = title;
 
         private void ItemGrid_LoadingRow(object sender, DataGridRowEventArgs e)
         {
             int index = e.Row.GetIndex();
-            if (sender.Equals(ItemGrid) && index >= 0 && index < metadata.GetRowColors().Count)
-                e.Row.Background = metadata.GetRowColor(index);
+            if (sender.Equals(ItemGrid) && index >= 0 && index < _metadata.GetRowColors().Count)
+                e.Row.Background = _metadata.GetRowColor(index);
         }
 
         private void ItemGrid_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -78,22 +78,22 @@ namespace InternationalSynchronizer.Components
             }
         }
 
-        public void UpdateMetadata(MyGridMetadata newMetadata) => metadata = new(newMetadata);
+        public void UpdateMetadata(MyGridMetadata newMetadata) => _metadata = new(newMetadata);
 
         public void VisualizeGrid(bool autoSync = false)
         {
             ItemGrid.Columns.Clear();
-            ItemGrid.ItemsSource = metadata.GetDataTable().DefaultView;
+            ItemGrid.ItemsSource = _metadata.GetDataTable().DefaultView;
 
-            if (metadata.GetLayer() != Layer.KnowledgeType)
+            if (_metadata.GetLayer() != Layer.KnowledgeType)
             {
                 RowDefinition knowledgePreviewRow = (RowDefinition)FindName("KnowledgePreviewRow");
                 knowledgePreviewRow.Height = new GridLength(0);
             }
             else
-                HandleKnowledgePreviews(autoSync ? -1 : metadata.GetIdByRow(0));
+                HandleKnowledgePreviews(autoSync ? -1 : _metadata.GetIdByRow(0));
             
-            var columns = metadata.GetDataTable().Columns;
+            var columns = _metadata.GetDataTable().Columns;
             for (int i = 0; i < columns.Count; i++)
             {
                 DataGridTextColumn textColumn = new()
@@ -106,7 +106,7 @@ namespace InternationalSynchronizer.Components
             }
             
             if (ItemGrid.Items.Count > 0)
-                ItemGrid.ScrollIntoView(ItemGrid.Items[0], ItemGrid.Columns[isRightDataGrid ? 0 : ^1]);
+                ItemGrid.ScrollIntoView(ItemGrid.Items[0], ItemGrid.Columns[_isRightDataGrid ? 0 : ^1]);
         }
 
         public void HandleKnowledgePreviews(Int32 knowledgeId)
@@ -117,15 +117,15 @@ namespace InternationalSynchronizer.Components
             string pass = $"&password={AppSettingsLoader.LoadConfiguration()["Keys:KnowledgePreview"]}";
             string knowledgePath = "/extern_knowledge_preview?knowledgeID=";
             
-            KnowledgePreview.Source = new Uri(knowledgePreviewBaseUrl + knowledgePath + knowledgeId + pass);
+            KnowledgePreview.Source = new Uri(_knowledgePreviewBaseUrl + knowledgePath + knowledgeId + pass);
         }
 
         public void SetGridRowColor(int index, SolidColorBrush color)
         {
-            if (index < 0 || index >= metadata.GetRowColors().Count)
+            if (index < 0 || index >= _metadata.GetRowColors().Count)
                 return;
 
-            metadata.SetRowColor(index, color);
+            _metadata.SetRowColor(index, color);
 
             if (ItemGrid.ItemContainerGenerator.ContainerFromIndex(index) is DataGridRow row)
                 row.Background = color;
@@ -133,17 +133,17 @@ namespace InternationalSynchronizer.Components
 
         public void SetAutoSyncMetadata(MyGridMetadata newMetadata)
         {
-            if (isRightDataGrid)
+            if (_isRightDataGrid)
             {
                 UpdateMetadata(newMetadata);
                 VisualizeGrid(true);
                 return;
             }
 
-            for (int rowIndex = 0; rowIndex < metadata.RowCount() && rowIndex < newMetadata.RowCount(); rowIndex++)
+            for (int rowIndex = 0; rowIndex < _metadata.RowCount() && rowIndex < newMetadata.RowCount(); rowIndex++)
                 if (newMetadata.IsRowColor(rowIndex, ACCEPT_COLOR))
                 {
-                    metadata.SetRowColor(rowIndex, ACCEPT_COLOR);
+                    _metadata.SetRowColor(rowIndex, ACCEPT_COLOR);
                     if (ItemGrid.ItemContainerGenerator.ContainerFromIndex(rowIndex) is DataGridRow row)
                         row.Background = ACCEPT_COLOR;
                 }
@@ -151,14 +151,14 @@ namespace InternationalSynchronizer.Components
 
         public void ClearAISync(bool delete = false)
         {
-            for (int rowIndex = 0; rowIndex < metadata.RowCount(); rowIndex++)
+            for (int rowIndex = 0; rowIndex < _metadata.RowCount(); rowIndex++)
             {
-                if (metadata.IsRowColor(rowIndex, ACCEPT_COLOR) || metadata.IsRowColor(rowIndex, DECLINE_COLOR))
+                if (_metadata.IsRowColor(rowIndex, ACCEPT_COLOR) || _metadata.IsRowColor(rowIndex, DECLINE_COLOR))
                 {
-                    if (delete || (isRightDataGrid && metadata.IsRowColor(rowIndex, DECLINE_COLOR)))
-                        metadata.ClearRowData(rowIndex);
+                    if (delete || (_isRightDataGrid && _metadata.IsRowColor(rowIndex, DECLINE_COLOR)))
+                        _metadata.ClearRowData(rowIndex);
 
-                    metadata.SetRowColor(rowIndex, NEUTRAL_COLOR);
+                    _metadata.SetRowColor(rowIndex, NEUTRAL_COLOR);
 
                     if (ItemGrid.ItemContainerGenerator.ContainerFromIndex(rowIndex) is DataGridRow row)
                         row.Background = NEUTRAL_COLOR;
@@ -168,7 +168,7 @@ namespace InternationalSynchronizer.Components
 
         public void ChangeSynchronizationRowAcceptence(int row)
         {
-            if (row < 0 || row >= metadata.RowCount())
+            if (row < 0 || row >= _metadata.RowCount())
                 return;
 
             DataGridRow dataGridRow = (DataGridRow)ItemGrid.ItemContainerGenerator.ContainerFromIndex(row);
@@ -177,7 +177,7 @@ namespace InternationalSynchronizer.Components
             {
                 SolidColorBrush newColor = dataGridRow.Background == ACCEPT_COLOR ? DECLINE_COLOR : ACCEPT_COLOR;
                 dataGridRow.Background = newColor;
-                metadata.SetRowColor(row, newColor);
+                _metadata.SetRowColor(row, newColor);
             }
 
             ItemGrid.SelectedIndex = -1;
@@ -187,21 +187,21 @@ namespace InternationalSynchronizer.Components
 
         public void SetSelectedIndex(int index) => ItemGrid.SelectedIndex = index;
 
-        public bool IsRowColor(int index, SolidColorBrush color) => metadata.IsRowColor(index, color);
+        public bool IsRowColor(int index, SolidColorBrush color) => _metadata.IsRowColor(index, color);
 
-        public MyGridMetadata GetMetadata() => metadata;
+        public MyGridMetadata GetMetadata() => _metadata;
 
         public ScrollViewer GetScrollViewer()
         {
-            if (scrollViewer != null)
-                return scrollViewer;
+            if (_scrollViewer != null)
+                return _scrollViewer;
 
             if (ItemGrid.Template.FindName("DG_ScrollViewer", ItemGrid) is ScrollViewer tmp)
-                scrollViewer = tmp;
+                _scrollViewer = tmp;
             else
                 return new();
 
-            return scrollViewer;
+            return _scrollViewer;
         }
     }
 }

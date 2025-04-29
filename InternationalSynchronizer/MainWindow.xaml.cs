@@ -6,27 +6,19 @@ using System.Windows.Controls;
 using static InternationalSynchronizer.Utilities.AppColors;
 using InternationalSynchronizer.Components;
 using System.Windows.Input;
-using InternationalSynchronizer.UpdateVectorItemTable;
 
 namespace InternationalSynchronizer
 {
     public partial class MainWindow : Window
     {
-        private Mode mode = Mode.FilterData;
-        private readonly DataManager dataManager;
-        private bool isScrollSynchronizationEnabled = true;
+        private Mode _mode = Mode.FilterData;
+        private DataManager _dataManager = null!;
+        private bool _isScrollSynchronizationEnabled = true;
 
-        public MainWindow() : this("Slovenská", "Česká") { } //Debug purposes
-
-        public MainWindow(string mainDatabase, string secondaryDatabase)
+        private MainWindow(string mainDatabase, string secondaryDatabase)
         {
             InitializeComponent();
-            Show();
             Closing += MainWindow_Closing;
-
-            dataManager = new(mainDatabase, secondaryDatabase);
-
-            SetUpScrollSynchronization();
 
             LeftDataGrid.ChangeTitle(mainDatabase);
             LeftDataGrid.SelectionChanged += LeftDataGridSelectionChanged;
@@ -44,25 +36,30 @@ namespace InternationalSynchronizer
             ActionButtons.NewDatabases += ChooseNewDatabases;
 
             FilterPanel.FiltereChanged += VisualiseFilteredDataAsync;
+        }
 
-            try
-            {
-                FilterPanel.LoadSubjectsAsync();
-            }
-            catch (SqlException)
-            {
-                Close();
-                throw;
-            }
+        private async Task InitializeAsync(string mainDatabase, string secondaryDatabase)
+        {
+            _dataManager = await DataManager.CreateAsync(mainDatabase, secondaryDatabase);
+            await FilterPanel.LoadSubjectsAsync();
+            Show();
+            Activate();
+            SetUpScrollSynchronization();
+        }
+        public static async Task<MainWindow> CreateAsync(string mainDb, string secondaryDb)
+        {
+            var window = new MainWindow(mainDb, secondaryDb);
+            await window.InitializeAsync(mainDb, secondaryDb);
+            return window;
         }
 
         private void LeftDataGridSelectionChanged(int selectedIndex)
         {
-            if (mode == Mode.FilterData)
+            if (_mode == Mode.FilterData)
                 FilterPanel.DataGridSelectionChanged(selectedIndex);
-            else if (mode == Mode.ManualSync && LeftDataGrid.GetMetadata().GetLayer() == Layer.Knowledge)
+            else if (_mode == Mode.ManualSync && LeftDataGrid.GetMetadata().GetLayer() == Layer.Knowledge)
                 LeftDataGrid.HandleKnowledgePreviews(LeftDataGrid.GetMetadata().GetIdByRow(selectedIndex));
-            else if (mode == Mode.AutoSync && LeftDataGrid.GetMetadata().GetLayer() != Layer.KnowledgeType)
+            else if (_mode == Mode.AutoSync && LeftDataGrid.GetMetadata().GetLayer() != Layer.KnowledgeType)
             {
                 LeftDataGrid.ChangeSynchronizationRowAcceptence(selectedIndex);
                 RightDataGrid.ChangeSynchronizationRowAcceptence(selectedIndex);
@@ -71,14 +68,14 @@ namespace InternationalSynchronizer
 
         private void RightDataGridSelectionChanged(int selectedIndex)
         {
-            if (mode == Mode.ManualSync)
+            if (_mode == Mode.ManualSync)
             {
                 if (LeftDataGrid.GetMetadata().GetLayer() != RightDataGrid.GetMetadata().GetLayer())
                     FilterPanel.DataGridSelectionChanged(selectedIndex);
                 else if (RightDataGrid.GetMetadata().GetLayer() == Layer.Knowledge)
                     RightDataGrid.HandleKnowledgePreviews(RightDataGrid.GetMetadata().GetIdByRow(selectedIndex));
             }
-            else if (mode == Mode.AutoSync)
+            else if (_mode == Mode.AutoSync)
             {
                 if (FilterPanel.Filter.Layer == Layer.KnowledgeType)
                     RightDataGrid.HandleKnowledgePreviews(RightDataGrid.GetMetadata().GetIdByRow(selectedIndex));
@@ -100,7 +97,7 @@ namespace InternationalSynchronizer
 
             try
             {
-                fullData = await Task.Run(() => dataManager.GetFilterData(FilterPanel.Filter, mode));
+                fullData = await Task.Run(() => _dataManager.GetFilterData(FilterPanel.Filter, _mode));
             }
             catch (Exception ex)
             {
@@ -113,10 +110,10 @@ namespace InternationalSynchronizer
 
             ActionButtons.LoadingWindow.Hide();
 
-            if (mode == Mode.AutoSync)
+            if (_mode == Mode.AutoSync)
                 ExitAutoSyncMode();
 
-            if (mode != Mode.ManualSync)
+            if (_mode != Mode.ManualSync)
             {
                 LeftDataGrid.UpdateMetadata(fullData.LeftMetadata);
                 LeftDataGrid.VisualizeGrid();
@@ -138,7 +135,7 @@ namespace InternationalSynchronizer
             {
                 EnableComponents(false);
 
-                int status = await Task.Run(() => dataManager.Synchronize(LeftDataGrid.GetMetadata(),
+                int status = await Task.Run(() => _dataManager.Synchronize(LeftDataGrid.GetMetadata(),
                                                                           RightDataGrid.GetMetadata(),
                                                                           FilterPanel.Filter.GetSubjectId()));
                 if (status > 0)
@@ -164,7 +161,7 @@ namespace InternationalSynchronizer
             {
                 EnableComponents(false);
 
-                return await (mode == Mode.AutoSync ?  ConfirmAutoAsync() : ConfirmManualAsync());
+                return await (_mode == Mode.AutoSync ?  ConfirmAutoAsync() : ConfirmManualAsync());
             }
             finally
             {
@@ -185,22 +182,22 @@ namespace InternationalSynchronizer
 
                 int selectedIndex = RightDataGrid.GetSelectedIndex();
 
-                newSyncCount = await Task.Run(() => dataManager.SaveAISyncChanges(LeftDataGrid.GetMetadata(), rightMetadata, selectedIndex));
+                newSyncCount = await Task.Run(() => _dataManager.SaveAISyncChanges(LeftDataGrid.GetMetadata(), rightMetadata, selectedIndex));
 
-                MyGridMetadata newMetadata = new(Layer.KnowledgeType, true);
+                MyGridMetadata newMetadata = new(Layer.KnowledgeType, -1, true);
                 newMetadata.AddRow(rightMetadata.GetRowData(selectedIndex), NEUTRAL_COLOR, rightMetadata.GetIdByRow(selectedIndex));
                 RightDataGrid.UpdateMetadata(newMetadata);
                 RightDataGrid.VisualizeGrid();
             }
             else
             {
-                newSyncCount = await Task.Run(() => dataManager.SaveAISyncChanges(LeftDataGrid.GetMetadata(), rightMetadata));
+                newSyncCount = await Task.Run(() => _dataManager.SaveAISyncChanges(LeftDataGrid.GetMetadata(), rightMetadata));
 
                 LeftDataGrid.ClearAISync();
                 RightDataGrid.ClearAISync();
             }
 
-            dataManager.AddToSyncedChildCount(FilterPanel.Filter.Layer - 1, FilterPanel.Filter.GetUpperLayerId(), newSyncCount);
+            _dataManager.AddToSyncedChildCount(FilterPanel.Filter.Layer - 1, FilterPanel.Filter.GetUpperLayerId(), newSyncCount);
 
             ExitAutoSyncMode();
 
@@ -224,7 +221,7 @@ namespace InternationalSynchronizer
             {
                 int newSyncCount = await SynchronizePairAsync(leftIndex, rightIndex);
 
-                dataManager.AddToSyncedChildCount(FilterPanel.Filter.Layer - 1, FilterPanel.FilterStorage.GetUpperLayerId(), newSyncCount);
+                _dataManager.AddToSyncedChildCount(FilterPanel.Filter.Layer - 1, FilterPanel.FilterStorage.GetUpperLayerId(), newSyncCount);
                 
                 return newSyncCount;
             }
@@ -232,7 +229,7 @@ namespace InternationalSynchronizer
 
         private async Task ManualSynchronizationAsync()
         {
-            Mode modeSave = mode;
+            Mode modeSave = _mode;
 
             EnableComponents(false);
             ActionButtons.LoadingWindow.UpdateText("Načítava sa, prosím čakajte...");
@@ -240,7 +237,7 @@ namespace InternationalSynchronizer
 
             try
             {
-                if (mode == Mode.FilterData)
+                if (_mode == Mode.FilterData)
                     await EnterManualModeAsync();
                 else
                     await ExitManualModeAsync();
@@ -256,14 +253,14 @@ namespace InternationalSynchronizer
             }
             catch (SqlException)
             {
-                mode = modeSave;
+                _mode = modeSave;
                 throw;
             }
         }
 
         private async Task DeleteSynchronizationAsync()
         {
-            if (mode == Mode.AutoSync)
+            if (_mode == Mode.AutoSync)
                 DeleteAuto();
             else
                 await DeleteManualAsync();
@@ -279,7 +276,7 @@ namespace InternationalSynchronizer
                 ExitAutoSyncMode();
                 if (FilterPanel.Filter.Layer == Layer.KnowledgeType)
                 {
-                    MyGridMetadata newMetadata = new(Layer.KnowledgeType, true);
+                    MyGridMetadata newMetadata = new(Layer.KnowledgeType, -1, true);
                     newMetadata.AddRow([], NEUTRAL_COLOR, -1);
                     RightDataGrid.UpdateMetadata(newMetadata);
                     RightDataGrid.VisualizeGrid();
@@ -313,9 +310,9 @@ namespace InternationalSynchronizer
 
                 try
                 {
-                    int newSyncCount = await Task.Run(() => dataManager.DeletePair(FilterPanel.Filter.Layer, LeftDataGrid.GetMetadata().GetIdByRow(selectedIndex)));
+                    int newSyncCount = await Task.Run(() => _dataManager.DeletePair(FilterPanel.Filter.Layer, LeftDataGrid.GetMetadata().GetIdByRow(selectedIndex)));
 
-                    dataManager.AddToSyncedChildCount(FilterPanel.Filter.Layer - 1, FilterPanel.Filter.GetUpperLayerId(), newSyncCount);
+                    _dataManager.AddToSyncedChildCount(FilterPanel.Filter.Layer - 1, FilterPanel.Filter.GetUpperLayerId(), newSyncCount);
 
                     RightDataGrid.GetMetadata().ClearRowData(selectedIndex);
                 }
@@ -329,7 +326,7 @@ namespace InternationalSynchronizer
         private void ChooseNewDatabases()
         {
             string message = "Naozaj chceš zmeniť databázy?";
-            if (mode == Mode.AutoSync)
+            if (_mode == Mode.AutoSync)
                 message += "\nVšetky neuložené synchronizácie budú stratené!";
 
             MessageBoxResult change = MessageBox.Show(message, "Potvrdenie zmeny databáz", MessageBoxButton.YesNo, MessageBoxImage.Question);
@@ -345,7 +342,7 @@ namespace InternationalSynchronizer
         private async Task<int> SynchronizePairAsync(int leftIndex, int rightIndex)
         {
             (int leftId, int rightId) = FilterPanel.GetIdsToSync(leftIndex, rightIndex);
-            await Task.Run(() => dataManager.SavePair(FilterPanel.Filter.Layer, leftId, rightId));
+            await Task.Run(() => _dataManager.SavePair(FilterPanel.Filter.Layer, leftId, rightId));
 
             LeftDataGrid.SetGridRowColor(leftIndex, SYNCED_COLOR);
             RightDataGrid.SetGridRowColor(rightIndex, SYNCED_COLOR);
@@ -355,13 +352,13 @@ namespace InternationalSynchronizer
 
         private void EnterAutoSyncMode()
         {
-            mode = Mode.AutoSync;
+            _mode = Mode.AutoSync;
             ActionButtons.EnterAutoSyncMode();
         }
 
         private void ExitAutoSyncMode()
         {
-            mode = Mode.FilterData;
+            _mode = Mode.FilterData;
             ActionButtons.EnterFilteringMode();
             LeftDataGrid.SetSelectedIndex(-1);
             RightDataGrid.SetSelectedIndex(-1);
@@ -369,10 +366,10 @@ namespace InternationalSynchronizer
 
         private async Task EnterManualModeAsync()
         {
-            mode = Mode.ManualSync;
+            _mode = Mode.ManualSync;
 
             MyGridMetadata newLeftMetadata = new(LeftDataGrid.GetMetadata());
-            await Task.Run(() => dataManager.VisualiseSyncedItems(newLeftMetadata, FilterPanel.Filter));
+            await Task.Run(() => _dataManager.VisualiseSyncedItems(newLeftMetadata, FilterPanel.Filter));
             
             try
             {
@@ -394,7 +391,7 @@ namespace InternationalSynchronizer
 
         private async Task ExitManualModeAsync()
         {
-            mode = Mode.FilterData;
+            _mode = Mode.FilterData;
 
             try
             {
@@ -433,7 +430,7 @@ namespace InternationalSynchronizer
 
         private void MainWindow_Closing(object? sender, CancelEventArgs e) => ActionButtons.LoadingWindow.Close();
 
-        private void EnableScrollSynchronization(bool enable) => isScrollSynchronizationEnabled = enable;
+        private void EnableScrollSynchronization(bool enable) => _isScrollSynchronizationEnabled = enable;
 
         private void SetUpScrollSynchronization()
         {
@@ -448,7 +445,7 @@ namespace InternationalSynchronizer
 
         private void ScrollChanged(object sender, ScrollChangedEventArgs e)
         {
-            if (e.VerticalChange == 0 || !isScrollSynchronizationEnabled)
+            if (e.VerticalChange == 0 || !_isScrollSynchronizationEnabled)
                 return;
 
             if (sender == LeftDataGrid.GetScrollViewer())
