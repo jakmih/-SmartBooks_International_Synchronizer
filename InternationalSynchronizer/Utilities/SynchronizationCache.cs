@@ -2,60 +2,34 @@
 using System.Data;
 using static InternationalSynchronizer.Utilities.SqlQuery;
 using static InternationalSynchronizer.Utilities.AppColors;
+using Microsoft.Extensions.Configuration;
 
 namespace InternationalSynchronizer.Utilities
 {
     public class SynchronizationCache
     {
-        private readonly string _synchronizationConnectionString;
+        private readonly string _connectionString;
         private readonly Dictionary<Layer, Dictionary<Int32, Int32>> _cache = [];
         private readonly Dictionary<Layer, Dictionary<Int32, Int32>> _mirrorCache = [];
-        private Int32 _mainDatabaseId;
-        private Int32 _secondaryDatabaseId;
+        private readonly Int32 _mainDatabaseId;
+        private readonly Int32 _secondaryDatabaseId;
 
-        public SynchronizationCache(string syncConnectionString)
+        public SynchronizationCache(Int32 mainDatabaseId, Int32 secondaryDatabaseId)
         {
             foreach (Layer layer in Enum.GetValues(typeof(Layer)))
             {
                 _cache.Add(layer, []);
                 _mirrorCache.Add(layer, []);
             }
-            _synchronizationConnectionString = syncConnectionString;
-        }
-
-        public async Task InitializeAsync(string mainDatabase, string secondaryDatabase)
-        {
-            _mainDatabaseId = await Task.Run(() => GetDatabaseId(mainDatabase));
-            _secondaryDatabaseId = await Task.Run(() => GetDatabaseId(secondaryDatabase));
-        }
-
-        private Int32 GetDatabaseId(string database)
-        {
-            using var connection = new SqlConnection(_synchronizationConnectionString);
-            connection.Open();
-            using var command = new SqlCommand(DatabaseIdQuery(database), connection);
-            using var reader = command.ExecuteReader();
-
-            if (reader.Read())
-                return reader.GetInt32(0);
-
-            reader.Close();
-            return CreateDatabase(database, connection);
-        }
-
-        private static Int32 CreateDatabase(string database, SqlConnection connection)
-        {
-            using var command = new SqlCommand(InsertDatabaseQuery(database), connection);
-            command.ExecuteNonQuery();
-
-            using var idCommand = new SqlCommand("SELECT SCOPE_IDENTITY()", connection);
-            return Convert.ToInt32(idCommand.ExecuteScalar());
+            _connectionString = App.Config.GetConnectionString("Sync")!;
+            _mainDatabaseId = mainDatabaseId;
+            _secondaryDatabaseId = secondaryDatabaseId;
         }
 
         public List<Int32> GetSynchronizedIds(Filter filter, bool secondaryDatabaseSearch)
         {
             List<Int32> synchronizedIds = [];
-            using var connection = new SqlConnection(_synchronizationConnectionString);
+            using var connection = new SqlConnection(_connectionString);
             connection.Open();
 
             foreach (Int32 id in filter.GetIds())
@@ -90,7 +64,7 @@ namespace InternationalSynchronizer.Utilities
             }
             else
             {
-                using var newConnection = new SqlConnection(_synchronizationConnectionString);
+                using var newConnection = new SqlConnection(_connectionString);
                 newConnection.Open();
 
                 using var command = new SqlCommand(query, newConnection);
@@ -126,7 +100,7 @@ namespace InternationalSynchronizer.Utilities
             pairsToInsert.Columns.Add("id_sync_item_1", typeof(int));
             pairsToInsert.Columns.Add("id_sync_item_2", typeof(int));
 
-            using var connection = new SqlConnection(_synchronizationConnectionString);
+            using var connection = new SqlConnection(_connectionString);
             connection.Open();
 
             for (int i = 0; i < leftMetadata.RowCount(); i++)
@@ -152,7 +126,7 @@ namespace InternationalSynchronizer.Utilities
                 }
             }
 
-            using var bulkCopy = new SqlBulkCopy(_synchronizationConnectionString, SqlBulkCopyOptions.KeepIdentity) { DestinationTableName = "sync_pair" };
+            using var bulkCopy = new SqlBulkCopy(_connectionString, SqlBulkCopyOptions.KeepIdentity) { DestinationTableName = "sync_pair" };
             bulkCopy.ColumnMappings.Add("id_sync_item_1", "id_sync_item_1");
             bulkCopy.ColumnMappings.Add("id_sync_item_2", "id_sync_item_2");
 
@@ -172,7 +146,7 @@ namespace InternationalSynchronizer.Utilities
             if (!addToDatabase || keyId == -1 || valueId == -1)
                 return;
 
-            using var connection = new SqlConnection(_synchronizationConnectionString);
+            using var connection = new SqlConnection(_connectionString);
             connection.Open();
 
             Int32 syncItemId1 = GetOrCreateSyncItem(connection, keyId, layer, _mainDatabaseId);
@@ -233,7 +207,7 @@ namespace InternationalSynchronizer.Utilities
             if ((pairItemId = GetSynchronizedId(layer, id)) == -1)
                 return;
 
-            using var connection = new SqlConnection(_synchronizationConnectionString);
+            using var connection = new SqlConnection(_connectionString);
             connection.Open();
 
             Int32 id1 = GetOrCreateSyncItem(connection, id, layer, _mainDatabaseId);

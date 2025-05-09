@@ -1,5 +1,4 @@
 ﻿using InternationalSynchronizer.Utilities;
-using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -80,18 +79,26 @@ namespace InternationalSynchronizer.Components
 
         public void UpdateMetadata(MyGridMetadata newMetadata) => _metadata = new(newMetadata);
 
+        public void VisualiseSyncedItems(MyGridMetadata syncMetadata)
+        {
+            for (int i = 0; i < _metadata.RowCount() && i < syncMetadata.RowCount(); i++)
+                if (syncMetadata.GetIdByRow(i) != -1)
+                {
+                    _metadata.SetRowColor(i, SYNCED_COLOR);
+                    if (ItemGrid.ItemContainerGenerator.ContainerFromIndex(i) is DataGridRow row)
+                        row.Background = SYNCED_COLOR;
+                }
+        }
+
         public void VisualizeGrid(bool autoSync = false)
         {
             ItemGrid.Columns.Clear();
             ItemGrid.ItemsSource = _metadata.GetDataTable().DefaultView;
 
             if (_metadata.GetLayer() != Layer.KnowledgeType)
-            {
-                RowDefinition knowledgePreviewRow = (RowDefinition)FindName("KnowledgePreviewRow");
-                knowledgePreviewRow.Height = new GridLength(0);
-            }
+                HideKnowledgePreview();
             else
-                HandleKnowledgePreviews(autoSync ? -1 : _metadata.GetIdByRow(0));
+                HandleKnowledgePreviews(autoSync ? -1 : 0);
             
             var columns = _metadata.GetDataTable().Columns;
             for (int i = 0; i < columns.Count; i++)
@@ -109,14 +116,22 @@ namespace InternationalSynchronizer.Components
                 ItemGrid.ScrollIntoView(ItemGrid.Items[0], ItemGrid.Columns[_isRightDataGrid ? 0 : ^1]);
         }
 
-        public void HandleKnowledgePreviews(Int32 knowledgeId)
+        public void HideKnowledgePreview()
+        {
+            RowDefinition knowledgePreviewRow = (RowDefinition)FindName("KnowledgePreviewRow");
+            knowledgePreviewRow.Height = new GridLength(0);
+        }
+
+        public void HandleKnowledgePreviews(Int32 rowIndex)
         {
             RowDefinition knowledgePreviewRow = (RowDefinition)FindName("KnowledgePreviewRow");
             knowledgePreviewRow.Height = new GridLength(1, GridUnitType.Star);
 
             string pass = $"&password={AppSettingsLoader.LoadConfiguration()["Keys:KnowledgePreview"]}";
             string knowledgePath = "/extern_knowledge_preview?knowledgeID=";
-            
+
+            Int32 knowledgeId = _metadata.GetIdByRow(rowIndex);
+
             KnowledgePreview.Source = new Uri(_knowledgePreviewBaseUrl + knowledgePath + knowledgeId + pass);
         }
 

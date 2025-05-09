@@ -1,4 +1,5 @@
-﻿using System.Data;
+﻿using Microsoft.Data.SqlClient;
+using System.Data;
 using System.Windows.Media;
 using static InternationalSynchronizer.Utilities.AppColors;
 
@@ -15,11 +16,11 @@ namespace InternationalSynchronizer.Utilities
         private readonly Int32 _upperLayerId;
         public Int32 UpperLayerId => _upperLayerId;
 
-        public MyGridMetadata(Layer layer, Int32 upperLayerId, bool isRightSide = false)
+        public MyGridMetadata(Layer layer, Int32 upperLayerId, bool isRightSide = false, bool includeChildCount = true)
         {
-            this._layer = layer;
-            this._isRightSide = isRightSide;
-            _dataTable = NewDataTable(layer, isRightSide);
+            _layer = layer;
+            _isRightSide = isRightSide;
+            _dataTable = NewDataTable(layer, isRightSide, includeChildCount);
             _rowColors = [];
             _ids = [];
             _knowledgeTypeIds = [];
@@ -120,40 +121,132 @@ namespace InternationalSynchronizer.Utilities
 
         public int ColumnCount() => _dataTable.Columns.Count;
 
-        public void CopyMetadata(MyGridMetadata metadata)
+        public void RemoveData()
         {
             _dataTable.Clear();
             _rowColors.Clear();
             _ids.Clear();
             _knowledgeTypeIds.Clear();
-            for (int i = 0; i < metadata.RowCount(); i++)
-                AddRow(metadata.GetRowData(i), metadata.GetRowColor(i), metadata.GetIdByRow(i), metadata.GetKnowledgeTypeIdByRow(i));
         }
 
-        private static DataTable NewDataTable(Layer layer, bool reversed)
+        public void UpdateRowId(int rowIndex, Int32 id)
+        {
+            if (rowIndex < 0 || rowIndex >= RowCount())
+                return;
+
+            _ids[rowIndex] = id;
+        }
+
+        public void UpdateRow(int rowIndex, string[] row, SolidColorBrush color)
+        {
+            if (rowIndex < 0 || rowIndex >= RowCount())
+                return;
+
+            for (int i = 0; i < ColumnCount(); i++)
+                _dataTable.Rows[rowIndex][i] = i < row.Length ? row[i] : "";
+
+            _rowColors[rowIndex] = color;
+        }
+
+        public void ExtractRowData(SqlDataReader reader, bool isMain)
+        {
+            List<string> rowData = isMain ? ExtractMainRowData(reader) : ExtractSyncRowData(reader);
+
+            if (_isRightSide)
+                rowData.Reverse();
+
+            if (isMain)
+                AddRow([.. rowData],
+                       NEUTRAL_COLOR,
+                       reader.GetInt32(reader.GetOrdinal("Id")),
+                       reader.GetInt32(reader.GetOrdinal("KnowledgeTypeId")));
+            else
+                AddRow([.. rowData],
+                       rowData[_layer == Layer.Knowledge ? 1 : 0].StartsWith("POLOŽKA BOLA ODSTRÁNENÁ - ID:") ? DELETED_ITEM_COLOR : NEUTRAL_COLOR,
+                       reader.GetInt32(reader.GetOrdinal("PairedItemId")));
+        }
+
+        private List<string> ExtractMainRowData(SqlDataReader reader)
+        {
+            List<string> rowData = [GetFromReader(reader, "Subject")];
+
+            if (_layer != Layer.Subject)
+            {
+                rowData.Add(GetFromReader(reader, "Package"));
+                if (_layer != Layer.Package)
+                {
+                    rowData.Add(GetFromReader(reader, "Theme"));
+                    if (_layer != Layer.Theme)
+                    {
+                        rowData.Add(GetFromReader(reader, "ThemePart"));
+                        rowData.Add(GetFromReader(reader, "Knowledge"));
+                        rowData.Add(GetFromReader(reader, "KnowledgeType"));
+                    }
+                }
+            }
+            if (_layer != Layer.Knowledge && _layer != Layer.KnowledgeType)
+                rowData.Add(GetFromReader(reader, "SyncedChildrenRatio"));
+
+            return rowData;
+        }
+
+        private List<string> ExtractSyncRowData(SqlDataReader reader)
+        {
+            List<string> rowData = [GetFromReader(reader, "PairedItemSubject")];
+
+            if (_layer != Layer.Subject)
+            {
+                rowData.Add(GetFromReader(reader, "PairedItemPackage"));
+                if (_layer != Layer.Package)
+                {
+                    rowData.Add(GetFromReader(reader, "PairedItemTheme"));
+                    if (_layer != Layer.Theme)
+                    {
+                        rowData.Add(GetFromReader(reader, "PairedItemThemePart"));
+                        rowData.Add(GetFromReader(reader, "PairedItemKnowledge"));
+                        rowData.Add(GetFromReader(reader, "PairedItemKnowledgeType"));
+                    }
+                }
+            }
+
+            return rowData;
+        }
+
+        private static string GetFromReader(SqlDataReader reader, string columnName)
+        {
+            int columnIndex = reader.GetOrdinal(columnName);
+
+            if (reader.IsDBNull(columnIndex))
+                return "";
+
+            return reader.GetString(columnIndex).Replace('\n', ' ').Trim();
+        }
+
+        private static DataTable NewDataTable(Layer layer, bool reversed, bool includeChildCount)
         {
             DataTable table = new();
-            List<string> columns = ["Predmet"];
+            List<string> columns = ["Subject"];
             if (layer != Layer.Subject)
             {
-                columns.Add("Balíček");
+                columns.Add("Package");
                 if (layer != Layer.Package)
                 {
-                    columns.Add("Téma");
+                    columns.Add("Theme");
                     if (layer != Layer.Theme)
                     {
-                        columns.Add("Pod-Téma");
-                        columns.Add("Úloha");
+                        columns.Add("Theme-part");
+                        columns.Add("Task");
                         columns.Add("Typ úlohy");
                     }
                 }
             }
 
+            if (layer != Layer.Knowledge && layer != Layer.KnowledgeType && includeChildCount)
+                columns.Add("Children Synchronized");
+
             if (reversed)
                 columns.Reverse();
-            else if (layer != Layer.Knowledge && layer != Layer.KnowledgeType)
-                columns.Add("Synchronizované");
-
+            
             foreach (string column in columns)
                     table.Columns.Add(column, typeof(string));
 

@@ -1,33 +1,36 @@
-﻿using InternationalSynchronizer.Utilities;
-using Microsoft.Extensions.Configuration;
+﻿using Microsoft.Extensions.Configuration;
 using System.Windows;
 using System.Windows.Controls;
 using System.ComponentModel;
 using Microsoft.Data.SqlClient;
+using System.Diagnostics;
 
 namespace InternationalSynchronizer
 {
     public partial class ConnectionWindow : Window
     {
-        private readonly IConfiguration _config = AppSettingsLoader.LoadConfiguration();
-        private readonly IEnumerable<string> _possibleConnections;
         private readonly LoadingWindow _loadingWindow = new();
+        private readonly Dictionary<Int32, string> _titles;
 
         public ConnectionWindow()
         {
-
             InitializeComponent();
             Closing += ConnectionWindow_Closing;
-            _possibleConnections = _config.GetRequiredSection("connectionStrings").GetChildren().Select(x => x.Key).Where(x => x != "Sync");
-            MainDatabaseComboBox.ItemsSource = _possibleConnections;
+            _titles = App.Config.GetRequiredSection("Titles").GetChildren().ToDictionary(x => Int32.Parse(x.Key), x => x.Value!);
+            MainDatabaseComboBox.ItemsSource = _titles.ToList();
+            MainDatabaseComboBox.DisplayMemberPath = "Value";
+            MainDatabaseComboBox.SelectedValuePath = "Key";
         }
 
         public void MainDatabaseComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            Int32 selectedKey = (Int32)MainDatabaseComboBox.SelectedValue;
             ConnectButton.IsEnabled = false;
             SecondaryDatabaseComboBox.IsEnabled = true;
             SecondaryDatabaseComboBox.SelectedItem = null;
-            SecondaryDatabaseComboBox.ItemsSource = _possibleConnections.Where(x => x != MainDatabaseComboBox.SelectedValue.ToString());
+            SecondaryDatabaseComboBox.ItemsSource = _titles.Where(kv => kv.Key != selectedKey).ToList();
+            SecondaryDatabaseComboBox.DisplayMemberPath = "Value";
+            SecondaryDatabaseComboBox.SelectedValuePath = "Key";
         }
 
         public void SecondaryDatabaseComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -39,11 +42,14 @@ namespace InternationalSynchronizer
         public async void ConnectButton_Click(object sender, RoutedEventArgs e)
         {
             MainWindow? mainWindow = null;
+            Int32 mainKey = (Int32)MainDatabaseComboBox.SelectedValue;
+            Int32 secondaryKey = (Int32)SecondaryDatabaseComboBox.SelectedValue;
+            Debug.WriteLine($"Selected: {mainKey} {secondaryKey}");
             try
             {
                 Hide();
                 _loadingWindow.Show();
-                mainWindow = await MainWindow.CreateAsync(MainDatabaseComboBox.SelectedValue.ToString()!, SecondaryDatabaseComboBox.SelectedValue.ToString()!);
+                mainWindow = await MainWindow.CreateAsync(mainKey, secondaryKey);
                 Close();
             }
             catch (SqlException ex)

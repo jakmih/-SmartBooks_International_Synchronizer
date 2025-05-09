@@ -12,22 +12,22 @@ namespace InternationalSynchronizer
     public partial class MainWindow : Window
     {
         private Mode _mode = Mode.FilterData;
-        private DataManager _dataManager = null!;
+        private readonly DataManager _dataManager;
         private bool _isScrollSynchronizationEnabled = true;
 
-        private MainWindow(string mainDatabase, string secondaryDatabase)
+        private MainWindow(Int32 mainDatabaseId, Int32 secondaryDatabaseId)
         {
             InitializeComponent();
             Closing += MainWindow_Closing;
 
-            LeftDataGrid.ChangeTitle(mainDatabase);
+            LeftDataGrid.ChangeTitle(App.Config["Titles:" + mainDatabaseId]!);
             LeftDataGrid.SelectionChanged += LeftDataGridSelectionChanged;
-            LeftDataGrid.SetKnowledgePreviewBaseUrl(AppSettingsLoader.LoadConfiguration()["Urls:" + mainDatabase]!);
+            LeftDataGrid.SetKnowledgePreviewBaseUrl(App.Config["Urls:" + mainDatabaseId]!);
 
             RightDataGrid.IsRightDataGrid(true);
-            RightDataGrid.ChangeTitle(secondaryDatabase);
+            RightDataGrid.ChangeTitle(App.Config["Titles:" + secondaryDatabaseId]!);
             RightDataGrid.SelectionChanged += RightDataGridSelectionChanged;
-            RightDataGrid.SetKnowledgePreviewBaseUrl(AppSettingsLoader.LoadConfiguration()["Urls:" + secondaryDatabase]!);
+            RightDataGrid.SetKnowledgePreviewBaseUrl(App.Config["Urls:" + secondaryDatabaseId]!);
 
             ActionButtons.AutoSync += AutoSynchronizationAsync;
             ActionButtons.ConfirmSync += ConfirmSynchronizationAsync;
@@ -36,20 +36,22 @@ namespace InternationalSynchronizer
             ActionButtons.NewDatabases += ChooseNewDatabases;
 
             FilterPanel.FiltereChanged += VisualiseFilteredDataAsync;
+
+            _dataManager = new(mainDatabaseId, secondaryDatabaseId);
         }
 
-        private async Task InitializeAsync(string mainDatabase, string secondaryDatabase)
+        private async Task InitializeAsync()
         {
-            _dataManager = await DataManager.CreateAsync(mainDatabase, secondaryDatabase);
             await FilterPanel.LoadSubjectsAsync();
             Show();
             Activate();
             SetUpScrollSynchronization();
         }
-        public static async Task<MainWindow> CreateAsync(string mainDb, string secondaryDb)
+
+        public static async Task<MainWindow> CreateAsync(Int32 mainDatabaseId, Int32 secondaryDatabaseId)
         {
-            var window = new MainWindow(mainDb, secondaryDb);
-            await window.InitializeAsync(mainDb, secondaryDb);
+            MainWindow window = new(mainDatabaseId, secondaryDatabaseId);
+            await window.InitializeAsync();
             return window;
         }
 
@@ -58,11 +60,13 @@ namespace InternationalSynchronizer
             if (_mode == Mode.FilterData)
                 FilterPanel.DataGridSelectionChanged(selectedIndex);
             else if (_mode == Mode.ManualSync && LeftDataGrid.GetMetadata().GetLayer() == Layer.Knowledge)
-                LeftDataGrid.HandleKnowledgePreviews(LeftDataGrid.GetMetadata().GetIdByRow(selectedIndex));
-            else if (_mode == Mode.AutoSync && LeftDataGrid.GetMetadata().GetLayer() != Layer.KnowledgeType)
+                LeftDataGrid.HandleKnowledgePreviews(selectedIndex);
+            else if (_mode == Mode.AutoSync)
             {
-                LeftDataGrid.ChangeSynchronizationRowAcceptence(selectedIndex);
-                RightDataGrid.ChangeSynchronizationRowAcceptence(selectedIndex);
+                if (FilterPanel.Filter.Layer == Layer.Knowledge)
+                    LeftDataGrid.HandleKnowledgePreviews(selectedIndex);
+                if (FilterPanel.Filter.Layer != Layer.KnowledgeType)
+                    AutoSyncSelectionChanged(selectedIndex);
             }
         }
 
@@ -73,18 +77,29 @@ namespace InternationalSynchronizer
                 if (LeftDataGrid.GetMetadata().GetLayer() != RightDataGrid.GetMetadata().GetLayer())
                     FilterPanel.DataGridSelectionChanged(selectedIndex);
                 else if (RightDataGrid.GetMetadata().GetLayer() == Layer.Knowledge)
-                    RightDataGrid.HandleKnowledgePreviews(RightDataGrid.GetMetadata().GetIdByRow(selectedIndex));
+                    RightDataGrid.HandleKnowledgePreviews(selectedIndex);
             }
             else if (_mode == Mode.AutoSync)
             {
+                if (FilterPanel.Filter.Layer == Layer.Knowledge)
+                    RightDataGrid.HandleKnowledgePreviews(selectedIndex);
                 if (FilterPanel.Filter.Layer == Layer.KnowledgeType)
-                    RightDataGrid.HandleKnowledgePreviews(RightDataGrid.GetMetadata().GetIdByRow(selectedIndex));
+                    RightDataGrid.HandleKnowledgePreviews(selectedIndex);
                 else
-                {
-                    LeftDataGrid.ChangeSynchronizationRowAcceptence(selectedIndex);
-                    RightDataGrid.ChangeSynchronizationRowAcceptence(selectedIndex);
-                }
+                    AutoSyncSelectionChanged(selectedIndex);
             }
+        }
+
+        private void AutoSyncSelectionChanged(int selectedIndex)
+        {
+            LeftDataGrid.ChangeSynchronizationRowAcceptence(selectedIndex);
+            RightDataGrid.ChangeSynchronizationRowAcceptence(selectedIndex);
+
+            if (FilterPanel.Filter.Layer != Layer.Knowledge)
+                return;
+
+            LeftDataGrid.HandleKnowledgePreviews(selectedIndex);
+            RightDataGrid.HandleKnowledgePreviews(selectedIndex);
         }
 
         private async Task VisualiseFilteredDataAsync()
@@ -99,11 +114,9 @@ namespace InternationalSynchronizer
             {
                 fullData = await Task.Run(() => _dataManager.GetFilterData(FilterPanel.Filter, _mode));
             }
-            catch (Exception ex)
+            catch (SqlException)
             {
                 ActionButtons.LoadingWindow.Hide();
-                MessageBox.Show("Skontrolujte internetové pripojenie a skúste znova. Pokiaľ problem pretrváva, kontaktujte Vedenie.\nSpráva erroru: " + ex.Message,
-                                "Chyba siete", MessageBoxButton.OK, MessageBoxImage.Error);
                 EnableComponents(true);
                 throw;
             }
@@ -113,14 +126,16 @@ namespace InternationalSynchronizer
             if (_mode == Mode.AutoSync)
                 ExitAutoSyncMode();
 
+            RightDataGrid.UpdateMetadata(fullData.RightMetadata);
+            RightDataGrid.VisualizeGrid();
+
             if (_mode != Mode.ManualSync)
             {
                 LeftDataGrid.UpdateMetadata(fullData.LeftMetadata);
                 LeftDataGrid.VisualizeGrid();
             }
-
-            RightDataGrid.UpdateMetadata(fullData.RightMetadata);
-            RightDataGrid.VisualizeGrid();
+            else
+                RightDataGrid.VisualiseSyncedItems(fullData.LeftMetadata);
 
             FilterPanel.UpdateFilter(fullData.FilterData);
             EnableComponents(true);
@@ -184,7 +199,7 @@ namespace InternationalSynchronizer
 
                 newSyncCount = await Task.Run(() => _dataManager.SaveAISyncChanges(LeftDataGrid.GetMetadata(), rightMetadata, selectedIndex));
 
-                MyGridMetadata newMetadata = new(Layer.KnowledgeType, -1, true);
+                MyGridMetadata newMetadata = new(Layer.KnowledgeType, -1, true, false);
                 newMetadata.AddRow(rightMetadata.GetRowData(selectedIndex), NEUTRAL_COLOR, rightMetadata.GetIdByRow(selectedIndex));
                 RightDataGrid.UpdateMetadata(newMetadata);
                 RightDataGrid.VisualizeGrid();
@@ -197,8 +212,6 @@ namespace InternationalSynchronizer
                 RightDataGrid.ClearAISync();
             }
 
-            _dataManager.AddToSyncedChildCount(FilterPanel.Filter.Layer - 1, FilterPanel.Filter.GetUpperLayerId(), newSyncCount);
-
             ExitAutoSyncMode();
 
             return newSyncCount;
@@ -206,25 +219,21 @@ namespace InternationalSynchronizer
 
         private async Task<int> ConfirmManualAsync()
         {
-            int leftIndex = LeftDataGrid.GetMetadata().GetLayer() == Layer.KnowledgeType ? 0 : LeftDataGrid.GetSelectedIndex();
-            int rightIndex = LeftDataGrid.GetMetadata().GetLayer() == Layer.KnowledgeType ? 0 : RightDataGrid.GetSelectedIndex();
+            if (LeftDataGrid.GetMetadata().GetLayer() != RightDataGrid.GetMetadata().GetLayer())
+                return -1;
+
+            int leftIndex = FilterPanel.Filter.Layer == Layer.KnowledgeType ? 0 : LeftDataGrid.GetSelectedIndex();
+            int rightIndex = FilterPanel.Filter.Layer == Layer.KnowledgeType ? 0 : RightDataGrid.GetSelectedIndex();
             LeftDataGrid.SetSelectedIndex(-1);
             RightDataGrid.SetSelectedIndex(-1);
 
-            if (LeftDataGrid.GetMetadata().GetLayer() != RightDataGrid.GetMetadata().GetLayer())
-                return -1;
-            else if (leftIndex == -1 || rightIndex == -1)
+            if (leftIndex == -1 || rightIndex == -1)
                 return -2;
-            else if (LeftDataGrid.IsRowColor(leftIndex, SYNCED_COLOR) || RightDataGrid.IsRowColor(rightIndex, SYNCED_COLOR))
-                return -3;
-            else
-            {
-                int newSyncCount = await SynchronizePairAsync(leftIndex, rightIndex);
 
-                _dataManager.AddToSyncedChildCount(FilterPanel.Filter.Layer - 1, FilterPanel.FilterStorage.GetUpperLayerId(), newSyncCount);
-                
-                return newSyncCount;
-            }
+            if (LeftDataGrid.IsRowColor(leftIndex, SYNCED_COLOR) || RightDataGrid.IsRowColor(rightIndex, SYNCED_COLOR))
+                return -3;
+
+            return await SynchronizePairAsync(leftIndex, rightIndex);
         }
 
         private async Task ManualSynchronizationAsync()
@@ -276,7 +285,7 @@ namespace InternationalSynchronizer
                 ExitAutoSyncMode();
                 if (FilterPanel.Filter.Layer == Layer.KnowledgeType)
                 {
-                    MyGridMetadata newMetadata = new(Layer.KnowledgeType, -1, true);
+                    MyGridMetadata newMetadata = new(Layer.KnowledgeType, -1, true, false);
                     newMetadata.AddRow([], NEUTRAL_COLOR, -1);
                     RightDataGrid.UpdateMetadata(newMetadata);
                     RightDataGrid.VisualizeGrid();
@@ -301,25 +310,23 @@ namespace InternationalSynchronizer
             }
 
             MessageBoxResult delete = MessageBox.Show("Naozaj chceš odstrániť túto synchronizáciu?",
-                                                        "Potvrdenie zmazania", MessageBoxButton.YesNo, MessageBoxImage.Information);
-            if (delete == MessageBoxResult.Yes)
+                                                      "Potvrdenie zmazania", MessageBoxButton.YesNo, MessageBoxImage.Information);
+            if (delete == MessageBoxResult.No)
+                return;
+            
+            EnableComponents(false);
+            ActionButtons.LoadingWindow.UpdateText("Odstraňuje sa synchronizácia, prosím čakajte...");
+            ActionButtons.LoadingWindow.Show();
+
+            try
             {
-                EnableComponents(false);
-                ActionButtons.LoadingWindow.UpdateText("Odstraňuje sa synchronizácia, prosím čakajte...");
-                ActionButtons.LoadingWindow.Show();
+                await Task.Run(() => _dataManager.DeletePair(FilterPanel.Filter.Layer, LeftDataGrid.GetMetadata().GetIdByRow(selectedIndex)));
 
-                try
-                {
-                    int newSyncCount = await Task.Run(() => _dataManager.DeletePair(FilterPanel.Filter.Layer, LeftDataGrid.GetMetadata().GetIdByRow(selectedIndex)));
-
-                    _dataManager.AddToSyncedChildCount(FilterPanel.Filter.Layer - 1, FilterPanel.Filter.GetUpperLayerId(), newSyncCount);
-
-                    RightDataGrid.GetMetadata().ClearRowData(selectedIndex);
-                }
-                finally
-                {
-                    EnableComponents(true);
-                }
+                RightDataGrid.GetMetadata().ClearRowData(selectedIndex);
+            }
+            finally
+            {
+                EnableComponents(true);
             }
         }
 
@@ -362,15 +369,16 @@ namespace InternationalSynchronizer
             ActionButtons.EnterFilteringMode();
             LeftDataGrid.SetSelectedIndex(-1);
             RightDataGrid.SetSelectedIndex(-1);
+            LeftDataGrid.HideKnowledgePreview();
+            RightDataGrid.HideKnowledgePreview();
         }
 
         private async Task EnterManualModeAsync()
         {
             _mode = Mode.ManualSync;
 
-            MyGridMetadata newLeftMetadata = new(LeftDataGrid.GetMetadata());
-            await Task.Run(() => _dataManager.VisualiseSyncedItems(newLeftMetadata, FilterPanel.Filter));
-            
+            MyGridMetadata syncMetadata = new(RightDataGrid.GetMetadata());
+
             try
             {
                 FilterPanel.SwapFilters();
@@ -382,8 +390,7 @@ namespace InternationalSynchronizer
                 throw;
             }
 
-            LeftDataGrid.UpdateMetadata(newLeftMetadata);
-            LeftDataGrid.VisualizeGrid();
+            LeftDataGrid.VisualiseSyncedItems(syncMetadata);
 
             EnableScrollSynchronization(false);
             ActionButtons.EnterManualSyncMode();
@@ -428,8 +435,6 @@ namespace InternationalSynchronizer
             }
         }
 
-        private void MainWindow_Closing(object? sender, CancelEventArgs e) => ActionButtons.LoadingWindow.Close();
-
         private void EnableScrollSynchronization(bool enable) => _isScrollSynchronizationEnabled = enable;
 
         private void SetUpScrollSynchronization()
@@ -454,5 +459,7 @@ namespace InternationalSynchronizer
             else
                 LeftDataGrid.GetScrollViewer().ScrollToVerticalOffset(RightDataGrid.GetScrollViewer().VerticalOffset);
         }
+
+        private void MainWindow_Closing(object? sender, CancelEventArgs e) => ActionButtons.LoadingWindow.Close();
     }
 }

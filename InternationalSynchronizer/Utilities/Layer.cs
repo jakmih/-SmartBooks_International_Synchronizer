@@ -1,4 +1,4 @@
-﻿namespace InternationalSynchronizer
+﻿namespace InternationalSynchronizer.Utilities
 {
     public enum Layer
     {

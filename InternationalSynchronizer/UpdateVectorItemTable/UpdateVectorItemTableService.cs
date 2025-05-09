@@ -15,11 +15,6 @@ namespace InternationalSynchronizer.UpdateVectorItemTable
         public bool RunUpdate()
         {
             IConfiguration config = AppSettingsLoader.LoadConfiguration();
-
-            Dictionary<string, string> databases = [];
-            foreach (string database in config.GetRequiredSection("connectionStrings").GetChildren().Select(x => x.Key).Where(x => x != "Sync"))
-                databases.Add(database, config.GetConnectionString(database)!);
-
             using var connection = new SqlConnection(config.GetConnectionString("Sync"));
             connection.Open();
 
@@ -31,8 +26,7 @@ namespace InternationalSynchronizer.UpdateVectorItemTable
                 truncateCommand.ExecuteNonQuery();
 
                 int updated = 0;
-                foreach (string database in databases.Keys)
-                    updated += UpdateOneDatabase(databases[database], GetDatabaseId(database, connection, transaction), connection, transaction);
+                updated += UpdateDatabase(connection, transaction);
 
                 // TODO add timestamp to the database
 
@@ -51,30 +45,9 @@ namespace InternationalSynchronizer.UpdateVectorItemTable
             }
         }
 
-        private static int GetDatabaseId(string database, SqlConnection connection, SqlTransaction transaction)
+        private static int UpdateDatabase(SqlConnection connection, SqlTransaction transaction)
         {
-            using var command = new SqlCommand(DatabaseIdQuery(database), connection, transaction);
-            using var reader = command.ExecuteReader();
-
-            if (reader.Read())
-                return reader.GetInt32(0);
-
-            reader.Close();
-            return CreateDatabase(database, connection);
-        }
-
-        private static int CreateDatabase(string database, SqlConnection connection)
-        {
-            using var command = new SqlCommand(InsertDatabaseQuery(database), connection);
-            command.ExecuteNonQuery();
-
-            using var idCommand = new SqlCommand("SELECT SCOPE_IDENTITY()", connection);
-            return Convert.ToInt32(idCommand.ExecuteScalar());
-        }
-
-        private static int UpdateOneDatabase(string connectionString, int databaseId, SqlConnection connection, SqlTransaction transaction)
-        {
-            List<Subject> subjects = LoadData(connectionString);
+            List<Subject> subjects = LoadData(connection, transaction);
 
             var vectorTable = new DataTable();
             vectorTable.Columns.Add("id_database", typeof(int));
@@ -91,7 +64,7 @@ namespace InternationalSynchronizer.UpdateVectorItemTable
                 foreach (var package in subject.Packages)
                 {
                     if (!string.IsNullOrEmpty(package.Name))
-                        vectorTable.Rows.Add(databaseId,
+                        vectorTable.Rows.Add(subject.DatabaseId,
                                              package.Id,
                                              1,
                                              package.Name,
@@ -102,8 +75,8 @@ namespace InternationalSynchronizer.UpdateVectorItemTable
 
                     foreach (var theme in package.Themes)
                     {
-                        if (!string.IsNullOrEmpty(package.Name))
-                            vectorTable.Rows.Add(databaseId,
+                        if (!string.IsNullOrEmpty(theme.Name))
+                            vectorTable.Rows.Add(subject.DatabaseId,
                                                  theme.Id,
                                                  2,
                                                  theme.Name,
@@ -114,7 +87,7 @@ namespace InternationalSynchronizer.UpdateVectorItemTable
 
                         foreach (var knowledge in theme.Knowledges)
                         {
-                            vectorTable.Rows.Add(databaseId,
+                            vectorTable.Rows.Add(subject.DatabaseId,
                                                  knowledge.Id,
                                                  3,
                                                  knowledge.Name,
@@ -136,52 +109,51 @@ namespace InternationalSynchronizer.UpdateVectorItemTable
             bulkCopy.ColumnMappings.Add("id_package", "id_package");
             bulkCopy.ColumnMappings.Add("id_theme", "id_theme");
             bulkCopy.ColumnMappings.Add("id_knowledge_type", "id_knowledge_type");
+            bulkCopy.BulkCopyTimeout = 600;
             bulkCopy.WriteToServer(vectorTable);
 
             return vectorTable.Rows.Count;
         }
 
-        private static List<Subject> LoadData(string connectionString)
+        private static List<Subject> LoadData(SqlConnection connection, SqlTransaction transaction)
         {
-            using var connection = new SqlConnection(connectionString);
-            connection.Open();
-
-            using var command = new SqlCommand(AllKnowledgesQuery(), connection);
+            using var command = new SqlCommand(AllKnowledgesQuery(), connection, transaction);
+            command.CommandTimeout = 600;
             using var reader = command.ExecuteReader();
 
             List<Subject> subjects = [];
-            Dictionary<int, Subject> subjectDict = [];
-            Dictionary<int, Package> packageDict = [];
-            Dictionary<int, Theme> themeDict = [];
+            Dictionary<(int, int), Subject> subjectDict = [];
+            Dictionary<(int, int), Package> packageDict = [];
+            Dictionary<(int, int), Theme> themeDict = [];
 
             while (reader.Read())
             {
-
+                int databaseId = reader.IsDBNull(9) ? 0 : Int32.Parse(reader.GetString(9));
                 int subjectId = reader.GetInt32(0);
-                if (!subjectDict.TryGetValue(subjectId, out var subject))
+                if (!subjectDict.TryGetValue((databaseId, subjectId), out var subject))
                 {
-                    subject = new Subject { Id = subjectId, Name = reader.IsDBNull(1) ? "" : reader.GetString(1) };
-                    subjectDict[subjectId] = subject;
+                    subject = new Subject { Id = subjectId, Name = reader.IsDBNull(1) ? "" : reader.GetString(1), DatabaseId = databaseId };
+                    subjectDict[(databaseId, subjectId)] = subject;
                     subjects.Add(subject);
                 }
 
                 if (!reader.IsDBNull(2))
                 {
                     int packageId = reader.GetInt32(2);
-                    if (!packageDict.TryGetValue(packageId, out var package))
+                    if (!packageDict.TryGetValue((databaseId, packageId), out var package))
                     {
                         package = new Package { Id = packageId, Name = reader.IsDBNull(3) ? "" : reader.GetString(3) };
-                        packageDict[packageId] = package;
+                        packageDict[(databaseId, packageId)] = package;
                         subject.Packages.Add(package);
                     }
 
                     if (!reader.IsDBNull(4))
                     {
                         int themeId = reader.GetInt32(4);
-                        if (!themeDict.TryGetValue(themeId, out var theme))
+                        if (!themeDict.TryGetValue((databaseId, themeId), out var theme))
                         {
                             theme = new Theme { Id = themeId, Name = reader.IsDBNull(5) ? "" : reader.GetString(5) };
-                            themeDict[themeId] = theme;
+                            themeDict[(databaseId, themeId)] = theme;
                             package.Themes.Add(theme);
                         }
 

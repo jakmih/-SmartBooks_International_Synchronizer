@@ -1,6 +1,4 @@
-﻿using Azure.Search.Documents.Indexes.Models;
-using InternationalSynchronizer.UpdateVectorItemTable.Model;
-using Microsoft.IdentityModel.Tokens;
+﻿using Microsoft.IdentityModel.Tokens;
 using Newtonsoft.Json;
 using System.Diagnostics;
 using System.Net.Http;
@@ -18,43 +16,129 @@ namespace InternationalSynchronizer.Utilities
         private static readonly string _indexName = "sb-final";
         private readonly DataManager _dataManager = dataManager;
 
-        public int Synchronize(MyGridMetadata leftMetadata, MyGridMetadata rightMetadata, Int32 subjectId)
+        public async Task<int> Synchronize(MyGridMetadata leftMetadata, MyGridMetadata rightMetadata, Int32 subjectId)
         {
             Int32 synchronizedSubjectId = _dataManager.GetSynchronizedId(Layer.Subject, subjectId);
             if (synchronizedSubjectId == -1)
                 return -1;
 
-            Layer layer = leftMetadata.GetLayer();
-            MyGridMetadata newMetadata = new(layer, -1, true);
+            if (rightMetadata.GetLayer() == Layer.KnowledgeType)
+                return await SynchronizeSpecificKnowledge(leftMetadata, rightMetadata, synchronizedSubjectId);
 
-            if (layer == Layer.KnowledgeType)
+            SemaphoreSlim semaphore = new(5);
+            List<Task<List<(Int32 Id, float Score)>>> matchesTasks = [];
+
+            for (int i = 0; i < leftMetadata.RowCount(); i++)
             {
-                if (rightMetadata.GetIdByRow(0) != -1)
-                    return 0;
-
-                int tmp = SynchronizeRow(synchronizedSubjectId, newMetadata, leftMetadata, 0);
-                if (tmp != 0)
-                    rightMetadata.CopyMetadata(newMetadata);
-
-                return tmp;
-            }
-            int newRowCount = 0;
-
-            for (int i = 0; i < leftMetadata.RowCount(); i++){
                 if (rightMetadata.GetIdByRow(i) == -1)
-                    newRowCount += SynchronizeRow(synchronizedSubjectId, newMetadata, leftMetadata, i);
+                    matchesTasks.Add(GetAIMatchesThrottled(semaphore, synchronizedSubjectId, leftMetadata, i));
                 else
-                    newMetadata.AddRow(rightMetadata.GetRowData(i), rightMetadata.GetRowColor(i), rightMetadata.GetIdByRow(i));
-}
-            if (newRowCount != 0)
-                rightMetadata.CopyMetadata(newMetadata);
+                    matchesTasks.Add(Task.FromResult(new List<(Int32, float)>()));
+            }
+
+            return await ChooseBestMatchesFirst(rightMetadata, await Task.WhenAll(matchesTasks));
+        }
+
+        private async Task<List<(Int32 Id, float Score)>> GetAIMatchesThrottled(SemaphoreSlim semaphore, int subjectId, MyGridMetadata metadata, int rowIndex)
+        {
+            await semaphore.WaitAsync();
+            try
+            {
+                return await GetAIMatches(subjectId, metadata, rowIndex);
+            }
+            finally
+            {
+                semaphore.Release();
+            }
+        }
+
+        private async Task<int> SynchronizeSpecificKnowledge(MyGridMetadata leftMetadata, MyGridMetadata rightMetadata, int synchronizedSubjectId)
+        {
+            if (rightMetadata.GetIdByRow(0) != -1)
+                return 0;
+
+            List<(Int32 Id, float Score)> matches = await GetAIMatches(synchronizedSubjectId, leftMetadata, 0);
+            if (matches.IsNullOrEmpty())
+                return 0;
+
+            var tasks = matches.Select(async match =>
+            {
+                Int32 id = match.Id;
+                if (_dataManager.GetSynchronizedId(Layer.KnowledgeType, id, true) == -1)
+                {
+                    List<string> newRow = await Task.Run(() => _dataManager.GetItem(rightMetadata.GetLayer(), id));
+                    newRow.Reverse();
+                    return (id, newRow);
+                }
+                return (id, (List<string>?)null);
+            });
+
+            var results = await Task.WhenAll(tasks);
+
+            rightMetadata.RemoveData();
+
+            foreach (var (id, newRow) in results)
+                if (newRow is not null)
+                    rightMetadata.AddRow([.. newRow], ACCEPT_COLOR, id);
+
+            return rightMetadata.RowCount();
+        }
+
+        private async Task<int> ChooseBestMatchesFirst(MyGridMetadata rightMetadata, List<(int Id, float Score)>[] allRowMatches)
+        {
+            List<Task> updateRowTasks = [];
+
+            int newRowCount = 0;
+            while (true)
+            {
+                (int chosenRow, int chosenMatch) = await Task.Run(() => ChooseBestMatch(rightMetadata, allRowMatches));
+                if (chosenRow == -1)
+                    break;
+
+                Int32 id = allRowMatches[chosenRow][chosenMatch].Id;
+                await Task.Run(() => rightMetadata.UpdateRowId(chosenRow, id));
+                updateRowTasks.Add(UpdateRow(chosenRow, id, rightMetadata));
+                allRowMatches[chosenRow] = [];
+                newRowCount++;
+            }
+
+            await Task.WhenAll(updateRowTasks);
 
             return newRowCount;
         }
 
-        private int SynchronizeRow(Int32 synchronizedSubjectId, MyGridMetadata newMetadata, MyGridMetadata leftMetadata, int rowIndex)
+        private (int ChosenRow, int ChosenMatch) ChooseBestMatch(MyGridMetadata rightMetadata, List<(int Id, float Score)>[] allRowMatches)
         {
-            Layer layer = newMetadata.GetLayer();
+            float biggestScore = 0;
+            int chosenRow = -1;
+            int chosenMatch = -1;
+            for (int rowIndex = 0; rowIndex < allRowMatches.Length; rowIndex++)
+            {
+                List<(int Id, float Score)> matches = allRowMatches[rowIndex];
+                if (matches.IsNullOrEmpty())
+                    continue;
+
+                for (int matchIndex = 0; matchIndex < matches.Count; matchIndex++)
+                {
+                    (int Id, float Score) = matches[matchIndex];
+
+                    if (Score <= biggestScore)
+                        break;
+
+                    if (!rightMetadata.GetIds().Contains(Id) && _dataManager.GetSynchronizedId(rightMetadata.GetLayer(), Id, true) == -1)
+                    {
+                        biggestScore = Score;
+                        chosenRow = rowIndex;
+                        chosenMatch = matchIndex;
+                    }
+                }
+            }
+            return (chosenRow, chosenMatch);
+        }
+
+        private async Task<List<(Int32 Id, float Score)>> GetAIMatches(Int32 synchronizedSubjectId, MyGridMetadata leftMetadata, int rowIndex)
+        {
+            Layer layer = leftMetadata.GetLayer();
             Int32 secondaryDatabaseId = _dataManager.GetSecondaryDatabaseId();
             string name = leftMetadata.GetRowData(rowIndex)[^2];
             Int32 synchronizedParentId = _dataManager.GetSynchronizedId(layer - 1, leftMetadata.UpperLayerId);
@@ -67,34 +151,14 @@ namespace InternationalSynchronizer.Utilities
                                                themeId:         layer == Layer.Knowledge || layer == Layer.KnowledgeType ? synchronizedParentId : -1,
                                                knowledgeTypeId: leftMetadata.GetKnowledgeTypeIdByRow(rowIndex));
             
-            Debug.WriteLine($"JSON Query: {jsonQuery}");
-            int choiceCount = 0;
-            List<Int32> ids = Search(jsonQuery);
-            
-            foreach (Int32 id in ids)
-                if (!newMetadata.GetIds().Contains(id) && _dataManager.GetSynchronizedId(layer, id, true) == -1)
-                {
-                    if (layer == Layer.KnowledgeType)
-                        choiceCount += UpdateRow(id, newMetadata);
-                    else if (UpdateRow(id, newMetadata) != 0)
-                        return 1;
-                }
-
-            if (layer != Layer.KnowledgeType)
-                newMetadata.AddRow([], NEUTRAL_COLOR, -1);
-
-            return choiceCount;
+            return await Task.Run(() => Search(jsonQuery));
         }
 
-        private int UpdateRow(Int32 id, MyGridMetadata newMetadata)
+        private async Task UpdateRow(int rowIndex, Int32 id, MyGridMetadata metadata)
         {
-            List<string> newRow = [.. _dataManager.GetItem(newMetadata.GetLayer(), id)];
-            if (newRow.IsNullOrEmpty())
-                return 0;
-
+            List<string> newRow = [.. await Task.Run(() => _dataManager.GetItem(metadata.GetLayer(), id))];
             newRow.Reverse();
-            newMetadata.AddRow([.. newRow], ACCEPT_COLOR, id);
-            return 1;
+            metadata.UpdateRow(rowIndex, [.. newRow], ACCEPT_COLOR);
         }
 
         private static string CreateJsonQuery(Int32 databaseId,
@@ -109,7 +173,7 @@ namespace InternationalSynchronizer.Utilities
             {{
                 ""select"": ""id_item"",
                 ""filter"": ""id_database eq {databaseId} and id_subject eq {subjectId} and id_item_type eq {itemTypeId}"",
-                ""top"": 10,
+                ""top"": 15,
                 ""scoringProfile"": ""priority_search"",
                 ""scoringParameters"": [
                     ""packageId:{packageId}"",
@@ -126,31 +190,32 @@ namespace InternationalSynchronizer.Utilities
             }}";
         }
 
-        static List<Int32> Search(string jsonQuery)
+        static List<(Int32 Id, float Score)> Search(string jsonQuery)
         {
-            List<Int32> ids = [];
+            List<(Int32, float)> results = [];
 
             using HttpClient client = new();
             client.DefaultRequestHeaders.Add("api-key", _apiKey);
 
             string url = $"{_endpoint}/indexes/{_indexName}/docs/search?api-version=2024-11-01-preview";
             HttpContent content = new StringContent(jsonQuery, Encoding.UTF8, "application/json");
-
+            Debug.WriteLine(jsonQuery);
             try
             {
                 HttpResponseMessage response = client.PostAsync(url, content).GetAwaiter().GetResult();
                 SearchResponse? searchResponse = response.Content.ReadFromJsonAsync<SearchResponse>().GetAwaiter().GetResult();
+
                 if (searchResponse?.Value != null)
                     foreach (var item in searchResponse.Value)
-                        ids.Add(item.IdItem);
+                        results.Add((item.IdItem, item.Score));
 
-                return ids;
+                return results;
             }
             catch (HttpRequestException ex)
             {
                 Debug.WriteLine($"HTTP request error: {ex.Message}");
+                return [];
             }
-            return [];
         }
 
         public class SearchResponse
@@ -162,7 +227,10 @@ namespace InternationalSynchronizer.Utilities
         public class SearchResultItem
         {
             [JsonPropertyName("id_item")]
-            public int IdItem { get; set; }
+            public Int32 IdItem { get; set; }
+
+            [JsonPropertyName("@search.score")]
+            public float Score { get; set; }
         }
     }
 }
