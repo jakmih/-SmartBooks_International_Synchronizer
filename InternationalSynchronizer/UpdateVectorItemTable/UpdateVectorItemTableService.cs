@@ -21,19 +21,17 @@ namespace InternationalSynchronizer.UpdateVectorItemTable
             using var transaction = connection.BeginTransaction();
             try
             {
-                using var truncateCommand = new SqlCommand(ClearVectorItemTable(), connection, transaction);
-                truncateCommand.CommandTimeout = 600;
-                truncateCommand.ExecuteNonQuery();
+                //using var truncateCommand = new SqlCommand("TRUNCATE TABLE vector_item", connection, transaction);
+                //truncateCommand.CommandTimeout = 600;
+                //truncateCommand.ExecuteNonQuery();
 
                 int updated = 0;
                 updated += UpdateDatabase(connection, transaction);
 
-                // TODO add timestamp to the database
-
                 transaction.Commit();
 
-                if (updated > 0)
-                    return SendHTTPRequestForVectorization();
+                //if (updated > 0)
+                //    return SendHTTPRequestForVectorization();
 
                 return false;
             }
@@ -48,71 +46,115 @@ namespace InternationalSynchronizer.UpdateVectorItemTable
         private static int UpdateDatabase(SqlConnection connection, SqlTransaction transaction)
         {
             List<Subject> subjects = LoadData(connection, transaction);
+            DataTable stagingTable = CreateStagingTable(connection, transaction, subjects);
 
-            var vectorTable = new DataTable();
-            vectorTable.Columns.Add("id_database", typeof(int));
-            vectorTable.Columns.Add("id_item", typeof(int));
-            vectorTable.Columns.Add("id_item_type", typeof(int));
-            vectorTable.Columns.Add("name", typeof(string));
-            vectorTable.Columns.Add("id_subject", typeof(int));
-            vectorTable.Columns.Add("id_package", typeof(int));
-            vectorTable.Columns.Add("id_theme", typeof(int));
-            vectorTable.Columns.Add("id_knowledge_type", typeof(int));
+            using (var command = new SqlCommand(DeleteRemovedRows(), connection, transaction))
+            {
+                command.CommandTimeout = 600;
+                command.ExecuteNonQuery();
+            }
+
+            using (var command = new SqlCommand(UpdateChangedRows(), connection, transaction))
+            {
+                command.CommandTimeout = 600;
+                command.ExecuteNonQuery();
+            }
+
+            using (var command = new SqlCommand(InsertNewRows(), connection, transaction))
+            {
+                command.CommandTimeout = 600;
+                command.ExecuteNonQuery();
+            }
+
+            return stagingTable.Rows.Count;
+        }
+
+        private static DataTable CreateStagingTable(SqlConnection connection, SqlTransaction transaction, List<Subject> subjects)
+        {
+            var stagingTable = new DataTable();
+            stagingTable.Columns.Add("id_database", typeof(int));
+            stagingTable.Columns.Add("id_item", typeof(int));
+            stagingTable.Columns.Add("id_item_type", typeof(int));
+            stagingTable.Columns.Add("name", typeof(string));
+            stagingTable.Columns.Add("id_subject", typeof(int));
+            stagingTable.Columns.Add("id_package", typeof(int));
+            stagingTable.Columns.Add("id_theme", typeof(int));
+            stagingTable.Columns.Add("id_knowledge_type", typeof(int));
+            stagingTable.Columns.Add("date_modified", typeof(DateTime));
+
+            FillStagingTable(subjects, stagingTable);
+
+            using (var command = new SqlCommand(CreateTemporaryTable(), connection, transaction))
+            {
+                command.CommandTimeout = 600;
+                command.ExecuteNonQuery();
+            }
+
+            using (var bulkCopy = new SqlBulkCopy(connection, SqlBulkCopyOptions.Default, transaction))
+            {
+                bulkCopy.DestinationTableName = "#vector_item_staging";
+                bulkCopy.ColumnMappings.Add("id_database", "id_database");
+                bulkCopy.ColumnMappings.Add("id_item", "id_item");
+                bulkCopy.ColumnMappings.Add("id_item_type", "id_item_type");
+                bulkCopy.ColumnMappings.Add("name", "name");
+                bulkCopy.ColumnMappings.Add("id_subject", "id_subject");
+                bulkCopy.ColumnMappings.Add("id_package", "id_package");
+                bulkCopy.ColumnMappings.Add("id_theme", "id_theme");
+                bulkCopy.ColumnMappings.Add("id_knowledge_type", "id_knowledge_type");
+                bulkCopy.ColumnMappings.Add("date_modified", "date_modified");
+                bulkCopy.WriteToServer(stagingTable);
+            }
+
+            return stagingTable;
+        }
+
+        private static void FillStagingTable(List<Subject> subjects, DataTable stagingTable)
+        {
+            DateTime now = DateTime.UtcNow;
 
             foreach (var subject in subjects)
             {
                 foreach (var package in subject.Packages)
                 {
                     if (!string.IsNullOrEmpty(package.Name))
-                        vectorTable.Rows.Add(subject.DatabaseId,
-                                             package.Id,
-                                             1,
-                                             package.Name,
-                                             subject.Id,
-                                             DBNull.Value,
-                                             DBNull.Value,
-                                             DBNull.Value);
+                        stagingTable.Rows.Add(subject.DatabaseId,
+                                              package.Id,
+                                              1,
+                                              package.Name,
+                                              subject.Id,
+                                              DBNull.Value,
+                                              DBNull.Value,
+                                              DBNull.Value,
+                                              now);
 
                     foreach (var theme in package.Themes)
                     {
                         if (!string.IsNullOrEmpty(theme.Name))
-                            vectorTable.Rows.Add(subject.DatabaseId,
-                                                 theme.Id,
-                                                 2,
-                                                 theme.Name,
-                                                 subject.Id,
-                                                 package.Id,
-                                                 DBNull.Value,
-                                                 DBNull.Value);
+                            stagingTable.Rows.Add(subject.DatabaseId,
+                                                  theme.Id,
+                                                  2,
+                                                  theme.Name,
+                                                  subject.Id,
+                                                  package.Id,
+                                                  DBNull.Value,
+                                                  DBNull.Value,
+                                                  now);
 
                         foreach (var knowledge in theme.Knowledges)
                         {
-                            vectorTable.Rows.Add(subject.DatabaseId,
-                                                 knowledge.Id,
-                                                 3,
-                                                 knowledge.Name,
-                                                 subject.Id,
-                                                 package.Id,
-                                                 theme.Id,
-                                                 knowledge.Type == null ? DBNull.Value : knowledge.Type);
+                            stagingTable.Rows.Add(subject.DatabaseId,
+                                                  knowledge.Id,
+                                                  3,
+                                                  knowledge.Name,
+                                                  subject.Id,
+                                                  package.Id,
+                                                  theme.Id,
+                                                  knowledge.Type == null ? DBNull.Value : knowledge.Type,
+                                                  now);
                         }
                     }
                 }
             }
-
-            using var bulkCopy = new SqlBulkCopy(connection, SqlBulkCopyOptions.Default, transaction) { DestinationTableName = "vector_item" };
-            bulkCopy.ColumnMappings.Add("id_database", "id_database");
-            bulkCopy.ColumnMappings.Add("id_item", "id_item");
-            bulkCopy.ColumnMappings.Add("id_item_type", "id_item_type");
-            bulkCopy.ColumnMappings.Add("name", "name");
-            bulkCopy.ColumnMappings.Add("id_subject", "id_subject");
-            bulkCopy.ColumnMappings.Add("id_package", "id_package");
-            bulkCopy.ColumnMappings.Add("id_theme", "id_theme");
-            bulkCopy.ColumnMappings.Add("id_knowledge_type", "id_knowledge_type");
-            bulkCopy.BulkCopyTimeout = 600;
-            bulkCopy.WriteToServer(vectorTable);
-
-            return vectorTable.Rows.Count;
         }
 
         private static List<Subject> LoadData(SqlConnection connection, SqlTransaction transaction)
@@ -178,7 +220,7 @@ namespace InternationalSynchronizer.UpdateVectorItemTable
             using var httpClient = new HttpClient();
 
             var endpoint = "https://testaistorage.search.windows.net/indexers/sb-final-indexer/run?api-version=2020-06-30";
-            var apiKey = AppSettingsLoader.LoadConfiguration()["Keys:AISearchKey"];
+            var apiKey = App.Config["Keys:AISearchKey"];
 
             httpClient.DefaultRequestHeaders.Clear();
             httpClient.DefaultRequestHeaders.Add("api-key", apiKey);

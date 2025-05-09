@@ -17,6 +17,62 @@
             return "TRUNCATE TABLE vector_item";
         }
 
+        public static string CreateTemporaryTable()
+        {
+            return @"
+                CREATE TABLE #vector_item_staging (
+                id_database INT, id_item INT, id_item_type INT, name NVARCHAR(MAX), 
+                id_subject INT, id_package INT, id_theme INT, id_knowledge_type INT, date_modified DATETIME2)";
+        }
+
+        public static string DeleteRemovedRows()
+        {
+            return @"
+                DELETE FROM vector_item
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM #vector_item_staging AS vs
+                    WHERE vs.id_item = vector_item.id_item
+                        AND vs.id_item_type = vector_item.id_item_type
+                        AND vs.id_database = vector_item.id_database)";
+        }
+
+        public static string UpdateChangedRows()
+        {
+            return @"
+                UPDATE vi
+                SET
+                    vi.name = vs.name,
+                    vi.id_subject = vs.id_subject,
+                    vi.id_package = vs.id_package,
+                    vi.id_theme = vs.id_theme,
+                    vi.id_knowledge_type = vs.id_knowledge_type,
+                    vi.date_modified = vs.date_modified
+                FROM vector_item AS vi
+                JOIN #vector_item_staging AS vs
+                    ON vi.id_item = vs.id_item
+                    AND vi.id_item_type = vs.id_item_type
+                    AND vi.id_database = vs.id_database
+                WHERE
+                    ISNULL(vi.name, '') != ISNULL(vs.name, '')
+                    OR vi.id_subject != vs.id_subject
+                    OR ISNULL(vi.id_package, -1) != ISNULL(vs.id_package, -1)
+                    OR ISNULL(vi.id_theme, -1) != ISNULL(vs.id_theme, -1)
+                    OR ISNULL(vi.id_knowledge_type, -1) != ISNULL(vs.id_knowledge_type, -1)";
+        }
+
+        public static string InsertNewRows()
+        {
+            return @"
+                INSERT INTO vector_item (id_database, id_item, id_item_type, name, id_subject, id_package, id_theme, id_knowledge_type, date_modified)
+                SELECT vs.id_database, vs.id_item, vs.id_item_type, vs.name, vs.id_subject, vs.id_package, vs.id_theme, vs.id_knowledge_type, vs.date_modified
+                FROM #vector_item_staging AS vs
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM vector_item AS vi
+                    WHERE vi.id_item = vs.id_item
+                        AND vi.id_item_type = vs.id_item_type
+                        AND vi.id_database = vs.id_database)";
+        }
+
         public static string AllKnowledgesQuery()
         {
             return @"
