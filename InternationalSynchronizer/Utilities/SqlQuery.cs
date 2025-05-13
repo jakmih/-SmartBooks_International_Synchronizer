@@ -22,9 +22,9 @@
             _ => "",
         };
 
-        private static string SyncedChildrenRatioQuery()
+        private static string SyncedChildrenRatioQuery(Layer layer)
         {
-            return @"   CAST(
+            return $@"   CAST(
                             COUNT( CASE 
                                 WHEN sync_child.id_1 IS NOT NULL 
                                 THEN 1
@@ -34,7 +34,7 @@
                         + '/' +
                         CAST(
                             COUNT( CASE 
-                                WHEN child.id IS NOT NULL 
+                                WHEN child.id IS NOT NULL
                                 THEN 1
                                 END
                             ) AS VARCHAR(10)
@@ -74,15 +74,16 @@
 
         private static string Subjects(Int32 db1, Int32 db2)
         {
+            Layer layer = Layer.Subject;
             string source = App.Config["Tables:" + db1]!;
             string target = App.Config["Tables:" + db2]!;
-            return $@"{DeclareQuery(db1, db2, 0, 0)}
+            return $@"{DeclareQuery(db1, db2, layer, 0)}
 
                 SELECT
                     sub.id,
                     sub.name                                            AS Subject,
                     -1                                                  AS KnowledgeTypeId,
-                    {SyncedChildrenRatioQuery()}                        AS SyncedChildrenRatio,
+                    {SyncedChildrenRatioQuery(layer)}                   AS SyncedChildrenRatio,
                     COALESCE(sync_sub.name, '')						    AS PairedItemSubject,
                     COALESCE(sync_sub.id, -1)						    AS PairedItemId
 
@@ -111,18 +112,19 @@
 
         private static string Packages(Int32 db1, Int32 db2, Int32 id)
         {
+            Layer layer = Layer.Package;
             string source = App.Config["Tables:" + db1]!;
             string target = App.Config["Tables:" + db2]!;
-            return $@"{DeclareQuery(db1, db2, 1, id)}
+            return $@"{DeclareQuery(db1, db2, layer, id)}
 
                 SELECT
                     pac.id,
                     sub.name                                                            AS Subject,
                     -1                                                                  AS KnowledgeTypeId,
                     COALESCE(pac.name + ' - ' + pac.description, '')					AS Package,
-                    {SyncedChildrenRatioQuery()}                                        AS SyncedChildrenRatio,
+                    {SyncedChildrenRatioQuery(layer)}                                   AS SyncedChildrenRatio,
                     COALESCE(sync_sub.name, '')						                    AS PairedItemSubject,
-                    {IsSyncItemDeletedQuery(Layer.Package)}								AS PairedItemPackage,
+                    {IsSyncItemDeletedQuery(layer)}								        AS PairedItemPackage,
                     COALESCE(sync_pac.id, -1)							                AS PairedItemId
 
 
@@ -158,9 +160,10 @@
 
         private static string Themes(Int32 db1, Int32 db2, Int32 id)
         {
+            Layer layer = Layer.Theme;
             string source = App.Config["Tables:" + db1]!;
             string target = App.Config["Tables:" + db2]!;
-            return $@"{DeclareQuery(db1, db2, 2, id)}
+            return $@"{DeclareQuery(db1, db2, layer, id)}
 
                 SELECT
                     thm.id,
@@ -168,10 +171,10 @@
                     COALESCE(pac.name + ' - ' + pac.description, '')			AS Package,
                     -1                                                          AS KnowledgeTypeId,
                     COALESCE(thm.name,'')										AS Theme,
-                    {SyncedChildrenRatioQuery()}                                AS SyncedChildrenRatio,
+                    {SyncedChildrenRatioQuery(layer)}                           AS SyncedChildrenRatio,
                     COALESCE(sync_sub.name, '')						            AS PairedItemSubject,
                     COALESCE(sync_pac.name  + ' - ' + sync_pac.description, '')	AS PairedItemPackage,
-                    {IsSyncItemDeletedQuery(Layer.Theme)}						AS PairedItemTheme,
+                    {IsSyncItemDeletedQuery(layer)}						        AS PairedItemTheme,
                     COALESCE(sync_thm.id, -1)							        AS PairedItemId
 
 
@@ -180,7 +183,6 @@
                 INNER JOIN package_{source} AS pac
                     ON sub.id = pac.id_subject_type
                     AND pac.date_deleted IS NULL
-                    AND pac.name NOT LIKE '[*]IMPORT[*]%'
                     AND pac.id = @itemId
                 INNER JOIN theme_{source} AS thm
                     ON pac.id = thm.id_package
@@ -201,7 +203,6 @@
                 LEFT JOIN knowledge_{source} AS child
                     ON child.id_theme_part = thm_p.id
                     AND child.date_deleted IS NULL
-                    AND child.knowledge_text_preview NOT LIKE '[*]IMPORT[*]%'
 
                 LEFT JOIN ({PairQuery(true)}) AS sync_child
                     ON sync_child.id_1 = child.id
@@ -216,9 +217,10 @@
 
         private static string Knowledge(Int32 db1, Int32 db2, Int32 id)
         {
+            Layer layer = Layer.Knowledge;
             string source = App.Config["Tables:" + db1]!;
             string target = App.Config["Tables:" + db2]!;
-            return $@"{DeclareQuery(db1, db2, 3, id)}
+            return $@"{DeclareQuery(db1, db2, layer, id)}
 
                 SELECT
                      kno.id,
@@ -233,7 +235,7 @@
                      COALESCE(sync_pac.name  + ' - ' + sync_pac.description, '')	AS PairedItemPackage,
                      COALESCE(sync_thm.name, '')						            AS PairedItemTheme,
                      COALESCE(sync_thm_p.name, '')						            AS PairedItemThemePart,
-                     {IsSyncItemDeletedQuery(Layer.Knowledge)}						AS PairedItemKnowledge,
+                     {IsSyncItemDeletedQuery(layer)}						        AS PairedItemKnowledge,
                      COALESCE(sync_kno_t.name, '')						            AS PairedItemKnowledgeType,
                      COALESCE(sync_kno.id, -1)							            AS PairedItemId
 
@@ -243,18 +245,15 @@
                 INNER JOIN package_{source} AS pac
                     ON sub.id = pac.id_subject_type
                     AND pac.date_deleted IS NULL
-                    AND pac.name NOT LIKE '[*]IMPORT[*]%'
                 INNER JOIN theme_{source} AS thm
                     ON pac.id = thm.id_package
                     AND thm.date_deleted IS NULL
-                    AND thm.name NOT LIKE '[*]IMPORT[*]%'
                     AND thm.id = @itemId
                 INNER JOIN theme_part_{source} AS thm_p
                     ON thm_p.id_theme = thm.id
                 INNER JOIN knowledge_{source} AS kno
                     ON kno.id_theme_part = thm_p.id
                     AND kno.date_deleted IS NULL
-                    AND kno.knowledge_text_preview NOT LIKE '[*]IMPORT[*]%'
                 INNER JOIN knowledge_type_{source} AS kno_t
                     ON kno_t.id = kno.id_knowledge_type
 
@@ -278,9 +277,10 @@
 
         private static string SpecificKnowledge(Int32 db1, Int32 db2, Int32 id)
         {
+            Layer layer = Layer.KnowledgeType;
             string source = App.Config["Tables:" + db1]!;
             string target = App.Config["Tables:" + db2]!;
-            return $@"{DeclareQuery(db1, db2, 3, id)}
+            return $@"{DeclareQuery(db1, db2, layer, id)}
 
                 SELECT
                     kno.id,
@@ -295,7 +295,7 @@
                     COALESCE(sync.pac, '')									        AS PairedItemPackage,
                     COALESCE(sync.thm, '')						                    AS PairedItemTheme,
                     COALESCE(sync.thm_p, '')						                AS PairedItemThemePart,
-                    {IsSyncItemDeletedQuery(Layer.KnowledgeType)}					AS PairedItemKnowledge,
+                    {IsSyncItemDeletedQuery(layer)}					                AS PairedItemKnowledge,
                     COALESCE(sync.kno_t, '')						                AS PairedItemKnowledgeType,
                     COALESCE(sync.kno_id, -1)							            AS PairedItemId
 
@@ -305,17 +305,14 @@
                 INNER JOIN package_{source} AS pac
                     ON sub.id = pac.id_subject_type
                     AND pac.date_deleted IS NULL
-                    AND pac.name NOT LIKE '[*]IMPORT[*]%'
                 INNER JOIN theme_{source} AS thm
                     ON pac.id = thm.id_package
                     AND thm.date_deleted IS NULL
-                    AND thm.name NOT LIKE '[*]IMPORT[*]%'
                 INNER JOIN theme_part_{source} AS thm_p
                     ON thm_p.id_theme = thm.id
                 INNER JOIN knowledge_{source} AS kno
                     ON kno.id_theme_part = thm_p.id
                     AND kno.date_deleted IS NULL
-                    AND kno.knowledge_text_preview NOT LIKE '[*]IMPORT[*]%'
                     AND kno.id = @itemId
                 INNER JOIN knowledge_type_{source} AS kno_t
                     ON kno_t.id = kno.id_knowledge_type
@@ -354,12 +351,15 @@
 	                ON sync.pair_id = kno.id";
         }
 
-        private static string DeclareQuery(Int32 mainDatabaseId, Int32 secondaryDatabaseId, int layer, Int32 id)
+        private static string DeclareQuery(Int32 mainDatabaseId, Int32 secondaryDatabaseId, Layer layer, Int32 id)
         {
+            if (layer == Layer.KnowledgeType)
+                layer = Layer.Knowledge;
+
             return $@"  DECLARE 
                             @dbSource       CHAR(1) = '{mainDatabaseId}',
                             @dbDest         CHAR(1) = '{secondaryDatabaseId}',
-                            @itemType		INT     = {layer},
+                            @itemType		INT     = {(int)layer},
                             @itemId		    INT     = {id}
                     ";
         }
@@ -403,12 +403,14 @@
                             ON thm.id = thm_p.id_theme
                             JOIN knowledge_{database} AS kno
                             ON thm_p.id = kno.id_theme_part
-                            WHERE kno.id = @itemId ";
+                            AND kno.id = @itemId
+                            JOIN knowledge_type_{database} AS kno_t
+                            ON kno.id_knowledge_type = kno_t.id ";
         }
 
         public static string OneItemQuery(Layer layer, Int32 id, Int32 databaseId)
         {
-            return DeclareQuery(0, databaseId, (int) layer, id) + SelectQuery(layer) + FromQuery(layer, App.Config["Tables:" + databaseId]!);
+            return DeclareQuery(0, databaseId, layer, id) + SelectQuery(layer) + FromQuery(layer, App.Config["Tables:" + databaseId]!);
         }
 
         public static string SyncPairQuery(Int32 layer, Int32 id, Int32 itemDatabaseId, Int32 pairItemDatabaseId)

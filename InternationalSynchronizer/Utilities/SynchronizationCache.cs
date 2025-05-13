@@ -135,7 +135,7 @@ namespace InternationalSynchronizer.Utilities
             return pairsToInsert.Rows.Count;
         }
 
-        public void SetSynchronizedId(Layer layer, Int32 keyId, Int32 valueId, bool addToDatabase = false)
+        public bool SetSynchronizedId(Layer layer, Int32 keyId, Int32 valueId, bool addToDatabase = false)
         {
             if (layer == Layer.KnowledgeType)
                 layer = Layer.Knowledge;
@@ -144,7 +144,7 @@ namespace InternationalSynchronizer.Utilities
                 _cache[layer][keyId] = valueId;
 
             if (!addToDatabase || keyId == -1 || valueId == -1)
-                return;
+                return false;
 
             using var connection = new SqlConnection(_connectionString);
             connection.Open();
@@ -156,6 +156,7 @@ namespace InternationalSynchronizer.Utilities
             {
                 using var command = new SqlCommand(InsertSyncPairQuery(syncItemId1, syncItemId2), connection);
                 int tmp = command.ExecuteNonQuery();
+                return true;
             }
             catch (SqlException)
             {

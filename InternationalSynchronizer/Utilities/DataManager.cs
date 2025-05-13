@@ -1,7 +1,7 @@
 ﻿using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
-using static InternationalSynchronizer.Utilities.SqlQuery;
 using System.Diagnostics;
+using static InternationalSynchronizer.Utilities.SqlQuery;
 
 namespace InternationalSynchronizer.Utilities
 {
@@ -27,54 +27,126 @@ namespace InternationalSynchronizer.Utilities
 
         public FullData GetFilterData(Filter filter, Mode mode)
         {
-            List<string> filterData = [];
-            MyGridMetadata leftMetadata = new(filter.Layer, filter.GetUpperLayerId());
-            MyGridMetadata rightMetadata = new(filter.Layer, -1, true, mode == Mode.ManualSync);
+            FullData fullData = new (new(filter.Layer, filter.GetUpperLayerId(), mode == Mode.ManualSync),
+                                     new(filter.Layer, -1, mode != Mode.ManualSync, false),
+                                     [],
+                                     filter.Layer);
 
             if (mode != Mode.ManualSync)
-            {
-                SetDataTables(leftMetadata, rightMetadata, filterData, filter.GetUpperLayerId());
-                filter.SetIds(leftMetadata.GetIds());
-            }
+                SetDataTables(fullData, filter.GetUpperLayerId());
             else
-            {
-                SetDataTables(rightMetadata, leftMetadata, filterData, filter.GetUpperLayerId());
-                filter.SetIds(rightMetadata.GetIds());
-            }
+                SetDataTables(fullData, filter.GetUpperLayerId());
 
-            return new FullData(leftMetadata, rightMetadata, filterData, filter.Layer);
+            filter.SetIds(fullData.MainMetadata.GetIds());
+
+            return fullData;
         }
 
-        private void SetDataTables(MyGridMetadata mainMetadata, MyGridMetadata syncMetadata, List<string> filterData, Int32 selectedItemId)
+        private void SetDataTables(FullData fullData, Int32 selectedItemId)
         {
-            Layer layer = mainMetadata.GetLayer();
-
             string connectionString = _connectionString;
-            string query = DataQuery(layer,
+            string query = DataQuery(fullData.Layer,
                                      selectedItemId,
-                                     mainMetadata.IsRightSide() ? _secondaryDatabaseId : _mainDatabaseId,
-                                     mainMetadata.IsRightSide() ? _mainDatabaseId : _secondaryDatabaseId);
-            Debug.WriteLine(query);
-            Debug.WriteLine(selectedItemId);
+                                     fullData.MainMetadata.IsRightSide() ? _secondaryDatabaseId : _mainDatabaseId,
+                                     fullData.MainMetadata.IsRightSide() ? _mainDatabaseId : _secondaryDatabaseId);
+
+            Debug.WriteLine($"Query: {query}");
             using var connection = new SqlConnection(connectionString);
             connection.Open();
 
             using var command = new SqlCommand(query, connection);
-            command.CommandTimeout = 60;
+            command.CommandTimeout = 100;
             using var reader = command.ExecuteReader();
+            SetRowOrder(fullData, reader);
+        }
 
-            if (layer == Layer.KnowledgeType)
-                layer = Layer.Knowledge;
-
-            int row = 0;
+        private static void SetRowOrder(FullData fullData, SqlDataReader reader)
+        {
+            List<(List<string>, List<string>)> syncedRows = [];
+            List<(List<string>, List<string>)> notSyncedRows = [];
 
             while (reader.Read())
             {
-                mainMetadata.ExtractRowData(reader, true);
-                syncMetadata.ExtractRowData(reader, false);
+                (List<string>, List<string>) row = (ExtractMainRowData(reader, fullData.Layer), ExtractSyncRowData(reader, fullData.Layer));
 
-                filterData.Add(mainMetadata.GetRowData(row++)[mainMetadata.IsRightSide() ? 1 : ^2]);
+                if (reader.GetInt32(reader.GetOrdinal("PairedItemId")) == -1)
+                    notSyncedRows.Add(row);
+                else
+                    syncedRows.Add(row);
             }
+
+            List<(List<string>, List<string>)> allRows = [];
+            allRows.AddRange(syncedRows);
+            allRows.AddRange(notSyncedRows);
+
+            for (int row = 0; row < allRows.Count; row++)
+            {
+                fullData.MainMetadata.AddRow(allRows[row].Item1, true);
+                fullData.SyncMetadata.AddRow(allRows[row].Item2, false);
+
+                fullData.FilterData.Add(fullData.MainMetadata.GetRowData(row)[fullData.MainMetadata.IsRightSide() ? 1 : ^2]);
+            }
+        }
+
+        private static List<string> ExtractMainRowData(SqlDataReader reader, Layer layer)
+        {
+            List<string> rowData = [GetFromReader(reader, "Subject")];
+
+            if (layer != Layer.Subject)
+            {
+                rowData.Add(GetFromReader(reader, "Package"));
+                if (layer != Layer.Package)
+                {
+                    rowData.Add(GetFromReader(reader, "Theme"));
+                    if (layer != Layer.Theme)
+                    {
+                        rowData.Add(GetFromReader(reader, "ThemePart"));
+                        rowData.Add(GetFromReader(reader, "Knowledge"));
+                        rowData.Add(GetFromReader(reader, "KnowledgeType"));
+                    }
+                }
+            }
+            if (layer != Layer.Knowledge && layer != Layer.KnowledgeType)
+                rowData.Add(GetFromReader(reader, "SyncedChildrenRatio"));
+
+            rowData.Add(reader.GetInt32(reader.GetOrdinal("Id")).ToString());
+            rowData.Add(reader.GetInt32(reader.GetOrdinal("KnowledgeTypeId")).ToString());
+
+            return rowData;
+        }
+
+        private static List<string> ExtractSyncRowData(SqlDataReader reader, Layer layer)
+        {
+            List<string> rowData = [GetFromReader(reader, "PairedItemSubject")];
+
+            if (layer != Layer.Subject)
+            {
+                rowData.Add(GetFromReader(reader, "PairedItemPackage"));
+                if (layer != Layer.Package)
+                {
+                    rowData.Add(GetFromReader(reader, "PairedItemTheme"));
+                    if (layer != Layer.Theme)
+                    {
+                        rowData.Add(GetFromReader(reader, "PairedItemThemePart"));
+                        rowData.Add(GetFromReader(reader, "PairedItemKnowledge"));
+                        rowData.Add(GetFromReader(reader, "PairedItemKnowledgeType"));
+                    }
+                }
+            }
+
+            rowData.Add(reader.GetInt32(reader.GetOrdinal("PairedItemId")).ToString());
+
+            return rowData;
+        }
+
+        private static string GetFromReader(SqlDataReader reader, string columnName)
+        {
+            int columnIndex = reader.GetOrdinal(columnName);
+
+            if (reader.IsDBNull(columnIndex))
+                return "";
+
+            return reader.GetString(columnIndex).Replace('\n', ' ').Trim();
         }
 
         public int Synchronize(MyGridMetadata leftMetadata, MyGridMetadata rightMetadata, Int32 subjectId) => _synchronizer.Synchronize(leftMetadata, rightMetadata, subjectId).Result;
@@ -82,16 +154,18 @@ namespace InternationalSynchronizer.Utilities
         public int SaveAISyncChanges(MyGridMetadata leftMetadata, MyGridMetadata rightMetadata, int index = -1)
         {
             if (index != -1)
-                return SavePair(Layer.KnowledgeType, leftMetadata.GetIdByRow(0), rightMetadata.GetIdByRow(index));
+                return SavePair(Layer.KnowledgeType, leftMetadata.GetIdByRow(0), rightMetadata.GetIdByRow(index)) ? 1 : 0;
             else
                 return _synchronizationCache.SaveAll(leftMetadata, rightMetadata);
         }
 
-        public int SavePair(Layer layer, Int32 leftId, Int32 rightId)
+        public bool SavePair(Layer layer, Int32 leftId, Int32 rightId)
         {
-            _synchronizationCache.SetSynchronizedId(layer, leftId, rightId, true);
+            if (!_synchronizationCache.SetSynchronizedId(layer, leftId, rightId, true))
+                return false;
+
             _synchronizationCache.SetSynchronizedMirroredId(layer, rightId, leftId);
-            return 1;
+            return true;
         }
 
         public void DeletePair(Layer layer, Int32 id) => _synchronizationCache.DeletePair(layer, id);

@@ -1,5 +1,4 @@
-﻿using Microsoft.Data.SqlClient;
-using System.Data;
+﻿using System.Data;
 using System.Windows.Media;
 using static InternationalSynchronizer.Utilities.AppColors;
 
@@ -109,6 +108,36 @@ namespace InternationalSynchronizer.Utilities
             _knowledgeTypeIds.Add(knowledgeTypeId);
         }
 
+        public void AddRow(List<string> rowData, bool isMain)
+        {
+            if (isMain)
+            {
+                Int32 knowledgeId = Int32.Parse(rowData[^1]);
+                rowData.RemoveAt(rowData.Count - 1);
+
+                Int32 id = Int32.Parse(rowData[^1]);
+                rowData.RemoveAt(rowData.Count - 1);
+
+                if (_isRightSide)
+                    rowData.Reverse();
+
+                AddRow([.. rowData], GetColor(rowData), id, knowledgeId);
+            }
+            else
+            {
+                Int32 id = Int32.Parse(rowData[^1]);
+                rowData.RemoveAt(rowData.Count - 1);
+
+                if (_isRightSide)
+                    rowData.Reverse();
+
+                SolidColorBrush color = rowData[_layer == Layer.Knowledge || _layer == Layer.KnowledgeType ? 1 : 0]
+                                        .StartsWith("POLOŽKA BOLA ODSTRÁNENÁ - ID:") ? DELETED_ITEM_COLOR : NEUTRAL_COLOR;
+
+                AddRow([.. rowData], color, id);
+            }
+        }
+
         public bool IsRowColor(int index, SolidColorBrush color)
         {
             if (index < 0 || index >= RowCount())
@@ -148,70 +177,6 @@ namespace InternationalSynchronizer.Utilities
             _rowColors[rowIndex] = color;
         }
 
-        public void ExtractRowData(SqlDataReader reader, bool isMain)
-        {
-            List<string> rowData = isMain ? ExtractMainRowData(reader) : ExtractSyncRowData(reader);
-
-            if (_isRightSide)
-                rowData.Reverse();
-
-            if (isMain)
-                AddRow([.. rowData],
-                       GetColor(rowData),
-                       reader.GetInt32(reader.GetOrdinal("Id")),
-                       reader.GetInt32(reader.GetOrdinal("KnowledgeTypeId")));
-            else
-                AddRow([.. rowData],
-                       rowData[_layer == Layer.Knowledge ? 1 : 0].StartsWith("POLOŽKA BOLA ODSTRÁNENÁ - ID:") ? DELETED_ITEM_COLOR : NEUTRAL_COLOR,
-                       reader.GetInt32(reader.GetOrdinal("PairedItemId")));
-        }
-
-        private List<string> ExtractMainRowData(SqlDataReader reader)
-        {
-            List<string> rowData = [GetFromReader(reader, "Subject")];
-
-            if (_layer != Layer.Subject)
-            {
-                rowData.Add(GetFromReader(reader, "Package"));
-                if (_layer != Layer.Package)
-                {
-                    rowData.Add(GetFromReader(reader, "Theme"));
-                    if (_layer != Layer.Theme)
-                    {
-                        rowData.Add(GetFromReader(reader, "ThemePart"));
-                        rowData.Add(GetFromReader(reader, "Knowledge"));
-                        rowData.Add(GetFromReader(reader, "KnowledgeType"));
-                    }
-                }
-            }
-            if (_layer != Layer.Knowledge && _layer != Layer.KnowledgeType)
-                rowData.Add(GetFromReader(reader, "SyncedChildrenRatio"));
-
-            return rowData;
-        }
-
-        private List<string> ExtractSyncRowData(SqlDataReader reader)
-        {
-            List<string> rowData = [GetFromReader(reader, "PairedItemSubject")];
-
-            if (_layer != Layer.Subject)
-            {
-                rowData.Add(GetFromReader(reader, "PairedItemPackage"));
-                if (_layer != Layer.Package)
-                {
-                    rowData.Add(GetFromReader(reader, "PairedItemTheme"));
-                    if (_layer != Layer.Theme)
-                    {
-                        rowData.Add(GetFromReader(reader, "PairedItemThemePart"));
-                        rowData.Add(GetFromReader(reader, "PairedItemKnowledge"));
-                        rowData.Add(GetFromReader(reader, "PairedItemKnowledgeType"));
-                    }
-                }
-            }
-
-            return rowData;
-        }
-
         private SolidColorBrush GetColor(List<string> rowData)
         {
             if (_layer == Layer.Knowledge || _layer == Layer.KnowledgeType)
@@ -231,15 +196,7 @@ namespace InternationalSynchronizer.Utilities
             return PARTIAL_CHILDREN_SYNCED_COLOR;
         }
 
-        private static string GetFromReader(SqlDataReader reader, string columnName)
-        {
-            int columnIndex = reader.GetOrdinal(columnName);
-
-            if (reader.IsDBNull(columnIndex))
-                return "";
-
-            return reader.GetString(columnIndex).Replace('\n', ' ').Trim();
-        }
+        public SolidColorBrush GetColor(int rowIndex) => GetColor([.. GetRowData(rowIndex)]);
 
         private static DataTable NewDataTable(Layer layer, bool reversed, bool includeChildCount)
         {

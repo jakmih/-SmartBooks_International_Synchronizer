@@ -67,6 +67,10 @@ namespace InternationalSynchronizer.Components
             _loadingWindow.Hide();
             switch (status)
             {
+                case -5:
+                    MessageBox.Show("Pri ukladaní synchronizácie nastala chyba.",
+                                    "Nepodarilo sa synchronizovať", MessageBoxButton.OK, MessageBoxImage.Information);
+                    break;
                 case -4:
                     MessageBox.Show("Na potvrdenie synchronizácie úlohy musíš označiť 1 položku v pravej tabuľke.",
                                     "Nevybraná synchronizácia", MessageBoxButton.OK, MessageBoxImage.Information);
