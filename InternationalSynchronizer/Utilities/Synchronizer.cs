@@ -12,7 +12,7 @@ namespace InternationalSynchronizer.Utilities
     public class Synchronizer(DataManager dataManager)
     {
         private static readonly string _endpoint = "https://testaistorage.search.windows.net";
-        private static readonly string _apiKey = AppSettingsLoader.LoadConfiguration().GetSection("Keys")["AISearchKey"]!;
+        private static readonly string _apiKey = App.Config["Keys:AISearchKey"]!;
         private static readonly string _indexName = "sb-final";
         private readonly DataManager _dataManager = dataManager;
 
