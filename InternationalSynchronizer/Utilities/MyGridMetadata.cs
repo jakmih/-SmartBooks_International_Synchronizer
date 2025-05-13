@@ -157,7 +157,7 @@ namespace InternationalSynchronizer.Utilities
 
             if (isMain)
                 AddRow([.. rowData],
-                       NEUTRAL_COLOR,
+                       GetColor(rowData),
                        reader.GetInt32(reader.GetOrdinal("Id")),
                        reader.GetInt32(reader.GetOrdinal("KnowledgeTypeId")));
             else
@@ -210,6 +210,25 @@ namespace InternationalSynchronizer.Utilities
             }
 
             return rowData;
+        }
+
+        private SolidColorBrush GetColor(List<string> rowData)
+        {
+            if (_layer == Layer.Knowledge || _layer == Layer.KnowledgeType)
+                return NEUTRAL_COLOR;
+
+            string[] childCount = rowData[_isRightSide ? 0 : ^1].Split('/');
+
+            int syncedChildren = Int32.Parse(childCount[0]);
+            int totalChildren = Int32.Parse(childCount[1]);
+
+            if (syncedChildren == 0)
+                return NO_CHILDREN_SYNCED_COLOR;
+
+            if (syncedChildren == totalChildren)
+                return ALL_CHILDREN_SYNCED_COLOR;
+
+            return PARTIAL_CHILDREN_SYNCED_COLOR;
         }
 
         private static string GetFromReader(SqlDataReader reader, string columnName)

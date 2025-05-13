@@ -127,7 +127,7 @@ namespace InternationalSynchronizer.Components
             RowDefinition knowledgePreviewRow = (RowDefinition)FindName("KnowledgePreviewRow");
             knowledgePreviewRow.Height = new GridLength(1, GridUnitType.Star);
 
-            string pass = $"&password={AppSettingsLoader.LoadConfiguration()["Keys:KnowledgePreview"]}";
+            string pass = $"&password={App.Config["Keys:KnowledgePreview"]}";
             string knowledgePath = "/extern_knowledge_preview?knowledgeID=";
 
             Int32 knowledgeId = _metadata.GetIdByRow(rowIndex);
@@ -179,6 +179,16 @@ namespace InternationalSynchronizer.Components
                         row.Background = NEUTRAL_COLOR;
                 }
             }
+        }
+
+        public void ClearRowData(int selectedIndex)
+        {
+            if (selectedIndex < 0 || selectedIndex >= _metadata.RowCount())
+                return;
+
+            _metadata.ClearRowData(selectedIndex);
+            if (ItemGrid.ItemContainerGenerator.ContainerFromIndex(selectedIndex) is DataGridRow row)
+                row.Background = NEUTRAL_COLOR;
         }
 
         public void ChangeSynchronizationRowAcceptence(int row)

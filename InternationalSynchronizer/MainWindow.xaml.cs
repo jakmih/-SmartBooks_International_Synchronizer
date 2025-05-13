@@ -322,7 +322,7 @@ namespace InternationalSynchronizer
             {
                 await Task.Run(() => _dataManager.DeletePair(FilterPanel.Filter.Layer, LeftDataGrid.GetMetadata().GetIdByRow(selectedIndex)));
 
-                RightDataGrid.GetMetadata().ClearRowData(selectedIndex);
+                RightDataGrid.ClearRowData(selectedIndex);
             }
             finally
             {

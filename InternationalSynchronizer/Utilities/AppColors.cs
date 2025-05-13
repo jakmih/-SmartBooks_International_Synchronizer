@@ -10,6 +10,9 @@ namespace InternationalSynchronizer.Utilities
         public static readonly SolidColorBrush DECLINE_COLOR = new(Colors.Red);
         public static readonly SolidColorBrush SYNCED_COLOR = new(Colors.Cyan);
         public static readonly SolidColorBrush DELETED_ITEM_COLOR = new(Colors.Orange);
+        public static readonly SolidColorBrush NO_CHILDREN_SYNCED_COLOR = new(Colors.LightGray);
+        public static readonly SolidColorBrush ALL_CHILDREN_SYNCED_COLOR = new(Colors.Green);
+        public static readonly SolidColorBrush PARTIAL_CHILDREN_SYNCED_COLOR = new(Colors.Yellow);
 
         // button colors
         public static readonly SolidColorBrush BACK_BUTTON_COLOR = new(Colors.Gray);
