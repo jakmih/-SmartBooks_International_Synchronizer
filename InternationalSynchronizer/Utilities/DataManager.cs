@@ -106,7 +106,7 @@ namespace InternationalSynchronizer.Utilities
                     }
                 }
             }
-            if (layer != Layer.Knowledge && layer != Layer.KnowledgeType)
+            if (layer != Layer.Knowledge && layer != Layer.SpecificKnowledge)
                 rowData.Add(GetFromReader(reader, "SyncedChildrenRatio"));
 
             rowData.Add(reader.GetInt32(reader.GetOrdinal("Id")).ToString());
@@ -154,7 +154,7 @@ namespace InternationalSynchronizer.Utilities
         public int SaveAISyncChanges(MyGridMetadata leftMetadata, MyGridMetadata rightMetadata, int index = -1)
         {
             if (index != -1)
-                return SavePair(Layer.KnowledgeType, leftMetadata.GetIdByRow(0), rightMetadata.GetIdByRow(index)) ? 1 : 0;
+                return SavePair(Layer.SpecificKnowledge, leftMetadata.GetIdByRow(0), rightMetadata.GetIdByRow(index)) ? 1 : 0;
             else
                 return _synchronizationCache.SaveAll(leftMetadata, rightMetadata);
         }

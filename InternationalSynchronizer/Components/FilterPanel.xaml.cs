@@ -45,7 +45,7 @@ namespace InternationalSynchronizer.Components
             else if (comboBox == ThemeComboBox)
                 _filter.Layer = Layer.Knowledge;
             else if (comboBox == KnowledgeComboBox)
-                _filter.Layer = Layer.KnowledgeType;
+                _filter.Layer = Layer.SpecificKnowledge;
             else
                 return;
             
@@ -81,7 +81,7 @@ namespace InternationalSynchronizer.Components
                 case Layer.Knowledge:
                     KnowledgeComboBox.SelectedIndex = index;
                     break;
-                case Layer.KnowledgeType:
+                case Layer.SpecificKnowledge:
                     break;
             }
         }
@@ -113,7 +113,7 @@ namespace InternationalSynchronizer.Components
             PackageComboBox.IsEnabled = true;
             ThemeComboBox.IsEnabled = true;
             KnowledgeComboBox.IsEnabled = true;
-            if (layer != Layer.KnowledgeType)
+            if (layer != Layer.SpecificKnowledge)
             {
                 KnowledgeComboBox.SelectedItem = null;
                 if (layer != Layer.Knowledge)

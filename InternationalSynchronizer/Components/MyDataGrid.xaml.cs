@@ -82,7 +82,7 @@ namespace InternationalSynchronizer.Components
             ItemGrid.Columns.Clear();
             ItemGrid.ItemsSource = _metadata.GetDataTable().DefaultView;
 
-            if (_metadata.GetLayer() != Layer.KnowledgeType)
+            if (_metadata.GetLayer() != Layer.SpecificKnowledge)
                 HideKnowledgePreview();
             else
                 HandleKnowledgePreviews(autoSync ? -1 : 0);

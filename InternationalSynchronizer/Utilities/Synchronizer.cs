@@ -22,7 +22,7 @@ namespace InternationalSynchronizer.Utilities
             if (synchronizedSubjectId == -1)
                 return -1;
 
-            if (rightMetadata.GetLayer() == Layer.KnowledgeType)
+            if (rightMetadata.GetLayer() == Layer.SpecificKnowledge)
                 return await SynchronizeSpecificKnowledge(leftMetadata, rightMetadata, synchronizedSubjectId);
 
             SemaphoreSlim semaphore = new(5);
@@ -64,7 +64,7 @@ namespace InternationalSynchronizer.Utilities
             var tasks = matches.Select(async match =>
             {
                 Int32 id = match.Id;
-                if (_dataManager.GetSynchronizedId(Layer.KnowledgeType, id, true) == -1)
+                if (_dataManager.GetSynchronizedId(Layer.SpecificKnowledge, id, true) == -1)
                 {
                     List<string> newRow = await Task.Run(() => _dataManager.GetItem(rightMetadata.GetLayer(), id));
                     newRow.Reverse();
@@ -145,10 +145,10 @@ namespace InternationalSynchronizer.Utilities
 
             string jsonQuery = CreateJsonQuery(databaseId:      secondaryDatabaseId,
                                                subjectId:       synchronizedSubjectId,
-                                               itemTypeId:      layer == Layer.KnowledgeType ? 3 : (Int32)layer,
+                                               itemTypeId:      layer == Layer.SpecificKnowledge ? 3 : (Int32)layer,
                                                name:            name,
                                                packageId:       layer == Layer.Theme ? synchronizedParentId : -1,
-                                               themeId:         layer == Layer.Knowledge || layer == Layer.KnowledgeType ? synchronizedParentId : -1,
+                                               themeId:         layer == Layer.Knowledge || layer == Layer.SpecificKnowledge ? synchronizedParentId : -1,
                                                knowledgeTypeId: leftMetadata.GetKnowledgeTypeIdByRow(rowIndex));
             
             return await Task.Run(() => Search(jsonQuery));

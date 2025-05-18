@@ -66,7 +66,7 @@ namespace InternationalSynchronizer
             {
                 if (FilterPanel.Filter.Layer == Layer.Knowledge)
                     LeftDataGrid.HandleKnowledgePreviews(selectedIndex);
-                if (FilterPanel.Filter.Layer != Layer.KnowledgeType)
+                if (FilterPanel.Filter.Layer != Layer.SpecificKnowledge)
                     AutoSyncSelectionChanged(selectedIndex);
             }
         }
@@ -84,7 +84,7 @@ namespace InternationalSynchronizer
             {
                 if (FilterPanel.Filter.Layer == Layer.Knowledge)
                     RightDataGrid.HandleKnowledgePreviews(selectedIndex);
-                if (FilterPanel.Filter.Layer == Layer.KnowledgeType)
+                if (FilterPanel.Filter.Layer == Layer.SpecificKnowledge)
                     RightDataGrid.HandleKnowledgePreviews(selectedIndex);
                 else
                     AutoSyncSelectionChanged(selectedIndex);
@@ -156,7 +156,7 @@ namespace InternationalSynchronizer
                                                                           FilterPanel.Filter.GetSubjectId()));
                 if (status > 0)
                 {
-                    if (FilterPanel.Filter.Layer != Layer.KnowledgeType)
+                    if (FilterPanel.Filter.Layer != Layer.SpecificKnowledge)
                         LeftDataGrid.SetAutoSyncMetadata(RightDataGrid.Metadata);
 
                     RightDataGrid.SetAutoSyncMetadata(RightDataGrid.Metadata);
@@ -191,7 +191,7 @@ namespace InternationalSynchronizer
 
             int newSyncCount = 0;
 
-            if (FilterPanel.Filter.Layer == Layer.KnowledgeType)
+            if (FilterPanel.Filter.Layer == Layer.SpecificKnowledge)
             {
                 if (RightDataGrid.ItemGrid.SelectedIndex == -1)
                     return -4;
@@ -200,7 +200,7 @@ namespace InternationalSynchronizer
 
                 newSyncCount = await Task.Run(() => _dataManager.SaveAISyncChanges(LeftDataGrid.Metadata, rightMetadata, selectedIndex));
 
-                MyGridMetadata newMetadata = new(Layer.KnowledgeType, -1, true, false);
+                MyGridMetadata newMetadata = new(Layer.SpecificKnowledge, -1, true, false);
 
                 if (newSyncCount == 0)
                 {
@@ -230,8 +230,8 @@ namespace InternationalSynchronizer
             if (LeftDataGrid.Metadata.GetLayer() != RightDataGrid.Metadata.GetLayer())
                 return -1;
 
-            int leftIndex = FilterPanel.Filter.Layer == Layer.KnowledgeType ? 0 : LeftDataGrid.ItemGrid.SelectedIndex;
-            int rightIndex = FilterPanel.Filter.Layer == Layer.KnowledgeType ? 0 : RightDataGrid.ItemGrid.SelectedIndex;
+            int leftIndex = FilterPanel.Filter.Layer == Layer.SpecificKnowledge ? 0 : LeftDataGrid.ItemGrid.SelectedIndex;
+            int rightIndex = FilterPanel.Filter.Layer == Layer.SpecificKnowledge ? 0 : RightDataGrid.ItemGrid.SelectedIndex;
             LeftDataGrid.ItemGrid.SelectedIndex = -1;
             RightDataGrid.ItemGrid.SelectedIndex = -1;
 
@@ -291,9 +291,9 @@ namespace InternationalSynchronizer
             if (cancel == MessageBoxResult.Yes)
             {
                 ExitAutoSyncMode();
-                if (FilterPanel.Filter.Layer == Layer.KnowledgeType)
+                if (FilterPanel.Filter.Layer == Layer.SpecificKnowledge)
                 {
-                    MyGridMetadata newMetadata = new(Layer.KnowledgeType, -1, true, false);
+                    MyGridMetadata newMetadata = new(Layer.SpecificKnowledge, -1, true, false);
                     newMetadata.AddRow([], NEUTRAL_COLOR, -1);
                     RightDataGrid.UpdateMetadata(newMetadata);
                 }
@@ -307,7 +307,7 @@ namespace InternationalSynchronizer
 
         private async Task DeleteManualAsync()
         {
-            int selectedIndex = FilterPanel.Filter.Layer == Layer.KnowledgeType ? 0 : RightDataGrid.ItemGrid.SelectedIndex;
+            int selectedIndex = FilterPanel.Filter.Layer == Layer.SpecificKnowledge ? 0 : RightDataGrid.ItemGrid.SelectedIndex;
 
             if (selectedIndex == -1 || RightDataGrid.Metadata.GetIdByRow(selectedIndex) == -1)
             {

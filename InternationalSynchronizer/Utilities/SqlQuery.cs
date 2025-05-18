@@ -16,7 +16,7 @@
                                         THEN COALESCE(sync_kno.knowledge_text_preview, '')
                                         ELSE 'POLOŽKA BOLA ODSTRÁNENÁ - ID: ' + CAST(sync_kno.id AS VARCHAR(10))    END",
 
-            Layer.KnowledgeType => @"CASE   WHEN sync.date_deleted IS NULL
+            Layer.SpecificKnowledge => @"CASE   WHEN sync.date_deleted IS NULL
                                             THEN COALESCE(sync.kno, '')
                                             ELSE 'POLOŽKA BOLA ODSTRÁNENÁ - ID: ' + CAST(sync.kno_id AS VARCHAR(10))    END",
             _ => "",
@@ -67,7 +67,7 @@
                 Layer.Package => Packages(sourceDatabaseId, targetDatabaseId, id),
                 Layer.Theme => Themes(sourceDatabaseId, targetDatabaseId, id),
                 Layer.Knowledge => Knowledge(sourceDatabaseId, targetDatabaseId, id),
-                Layer.KnowledgeType => SpecificKnowledge(sourceDatabaseId, targetDatabaseId, id),
+                Layer.SpecificKnowledge => SpecificKnowledge(sourceDatabaseId, targetDatabaseId, id),
                 _ => "",
             };
         }
@@ -277,7 +277,7 @@
 
         private static string SpecificKnowledge(Int32 db1, Int32 db2, Int32 id)
         {
-            Layer layer = Layer.KnowledgeType;
+            Layer layer = Layer.SpecificKnowledge;
             string source = App.Config["Tables:" + db1]!;
             string target = App.Config["Tables:" + db2]!;
             return $@"{DeclareQuery(db1, db2, layer, id)}
@@ -353,7 +353,7 @@
 
         private static string DeclareQuery(Int32 mainDatabaseId, Int32 secondaryDatabaseId, Layer layer, Int32 id)
         {
-            if (layer == Layer.KnowledgeType)
+            if (layer == Layer.SpecificKnowledge)
                 layer = Layer.Knowledge;
 
             return $@"  DECLARE 

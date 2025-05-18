@@ -21,12 +21,12 @@ namespace InternationalSynchronizer.Utilities
             _selectedUpperLayerId.Add(Layer.Package, -1);
             _selectedUpperLayerId.Add(Layer.Theme, -1);
             _selectedUpperLayerId.Add(Layer.Knowledge, -1);
-            _selectedUpperLayerId.Add(Layer.KnowledgeType, -1);
+            _selectedUpperLayerId.Add(Layer.SpecificKnowledge, -1);
             _layerIds.Add(Layer.Subject, []);
             _layerIds.Add(Layer.Package, []);
             _layerIds.Add(Layer.Theme, []);
             _layerIds.Add(Layer.Knowledge, []);
-            _layerIds.Add(Layer.KnowledgeType, []);
+            _layerIds.Add(Layer.SpecificKnowledge, []);
         }
 
         public void SetIds(List<Int32> ids) => _layerIds[_layer] = [..ids];
@@ -35,7 +35,7 @@ namespace InternationalSynchronizer.Utilities
 
         public Int32 GetIdByRow(Int32 rowIndex)
         {
-            if (_layer == Layer.KnowledgeType)
+            if (_layer == Layer.SpecificKnowledge)
                 return _selectedUpperLayerId[_layer];
 
             return (_layerIds[_layer].Count > rowIndex && rowIndex >= 0) ? _layerIds[_layer][rowIndex] : -1;
@@ -43,7 +43,7 @@ namespace InternationalSynchronizer.Utilities
 
         public List<Int32> GetIds()
         {
-            if (_layer == Layer.KnowledgeType)
+            if (_layer == Layer.SpecificKnowledge)
                 return [_selectedUpperLayerId[_layer]];
 
             return _layerIds[_layer];

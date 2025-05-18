@@ -131,7 +131,7 @@ namespace InternationalSynchronizer.Utilities
                 if (_isRightSide)
                     rowData.Reverse();
 
-                SolidColorBrush color = rowData[_layer == Layer.Knowledge || _layer == Layer.KnowledgeType ? 1 : 0]
+                SolidColorBrush color = rowData[_layer == Layer.Knowledge || _layer == Layer.SpecificKnowledge ? 1 : 0]
                                         .StartsWith("POLOŽKA BOLA ODSTRÁNENÁ - ID:") ? DELETED_ITEM_COLOR : NEUTRAL_COLOR;
 
                 AddRow([.. rowData], color, id);
@@ -179,7 +179,7 @@ namespace InternationalSynchronizer.Utilities
 
         private SolidColorBrush GetColor(List<string> rowData)
         {
-            if (_layer == Layer.Knowledge || _layer == Layer.KnowledgeType)
+            if (_layer == Layer.Knowledge || _layer == Layer.SpecificKnowledge)
                 return NEUTRAL_COLOR;
 
             string[] childCount = rowData[_isRightSide ? 0 : ^1].Split('/');
@@ -201,24 +201,24 @@ namespace InternationalSynchronizer.Utilities
         private static DataTable NewDataTable(Layer layer, bool reversed, bool includeChildCount)
         {
             DataTable table = new();
-            List<string> columns = ["Subject"];
+            List<string> columns = ["Predmet"];
             if (layer != Layer.Subject)
             {
-                columns.Add("Package");
+                columns.Add("Balíček");
                 if (layer != Layer.Package)
                 {
-                    columns.Add("Theme");
+                    columns.Add("Téma");
                     if (layer != Layer.Theme)
                     {
-                        columns.Add("Theme-part");
-                        columns.Add("Task");
-                        columns.Add("Typ úlohy");
+                        columns.Add("Pod-téma");
+                        columns.Add("Úloha");
+                        columns.Add("Typ Úlohy");
                     }
                 }
             }
 
-            if (layer != Layer.Knowledge && layer != Layer.KnowledgeType && includeChildCount)
-                columns.Add("Children Synchronized");
+            if (layer != Layer.Knowledge && layer != Layer.SpecificKnowledge && includeChildCount)
+                columns.Add("Synchronizované " + (layer == Layer.Subject ? "Balíčky" : layer == Layer.Package ? "Témy" : "Úlohy"));
 
             if (reversed)
                 columns.Reverse();

@@ -40,7 +40,7 @@ namespace InternationalSynchronizer.Utilities
 
         public Int32 GetSynchronizedId(Layer layer, Int32 id, bool secondaryDatabaseSearch = false, SqlConnection? connection = null)
         {
-            if (layer == Layer.KnowledgeType)
+            if (layer == Layer.SpecificKnowledge)
                 layer = Layer.Knowledge;
 
             if (secondaryDatabaseSearch)
@@ -113,7 +113,7 @@ namespace InternationalSynchronizer.Utilities
                     if (leftId == -1 || rightId == -1)
                         continue;
 
-                    Layer layer = leftMetadata.GetLayer() == Layer.KnowledgeType ? Layer.Knowledge : leftMetadata.GetLayer();
+                    Layer layer = leftMetadata.GetLayer() == Layer.SpecificKnowledge ? Layer.Knowledge : leftMetadata.GetLayer();
                     if (!_cache[layer].TryAdd(leftId, rightId))
                         _cache[layer][leftId] = rightId;
 
@@ -137,7 +137,7 @@ namespace InternationalSynchronizer.Utilities
 
         public bool SetSynchronizedId(Layer layer, Int32 keyId, Int32 valueId, bool addToDatabase = false)
         {
-            if (layer == Layer.KnowledgeType)
+            if (layer == Layer.SpecificKnowledge)
                 layer = Layer.Knowledge;
 
             if (!_cache[layer].TryAdd(keyId, valueId))
@@ -167,7 +167,7 @@ namespace InternationalSynchronizer.Utilities
 
         public void SetSynchronizedMirroredId(Layer layer, Int32 keyId, Int32 valueId)
         {
-            if (layer == Layer.KnowledgeType)
+            if (layer == Layer.SpecificKnowledge)
                 layer = Layer.Knowledge;
 
             if (!_mirrorCache[layer].TryAdd(keyId, valueId))
@@ -176,7 +176,7 @@ namespace InternationalSynchronizer.Utilities
 
         private static Int32 GetOrCreateSyncItem(SqlConnection connection, Int32 id, Layer layer, Int32 databaseId)
         {
-            if (layer == Layer.KnowledgeType)
+            if (layer == Layer.SpecificKnowledge)
                 layer = Layer.Knowledge;
 
             string query = SyncItemQuery((Int32)layer, id, databaseId);
@@ -201,7 +201,7 @@ namespace InternationalSynchronizer.Utilities
 
         public void DeletePair(Layer layer, Int32 id)
         {
-            if (layer == Layer.KnowledgeType)
+            if (layer == Layer.SpecificKnowledge)
                 layer = Layer.Knowledge;
 
             Int32 pairItemId;

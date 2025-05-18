@@ -6,6 +6,6 @@
         Package,
         Theme,
         Knowledge,
-        KnowledgeType
+        SpecificKnowledge
     }
 }
